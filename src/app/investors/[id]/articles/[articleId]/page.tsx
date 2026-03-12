@@ -25,7 +25,27 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
       </Link>
 
       <div className="space-y-4">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="px-3 py-1 bg-[#0071e3] text-white rounded-full text-sm">
+            {article.type === "interview" ? "采访" : 
+             article.type === "news" ? "新闻" : 
+             article.type === "event" ? "事件" : 
+             article.type === "speech" ? "演讲" : 
+             article.type === "book-excerpt" ? "书籍摘录" : "其他"}
+          </span>
+        </div>
         <h1 className="text-4xl font-bold text-[#1d1d1f]">{article.title}</h1>
+        {article.titleEn && <p className="text-xl text-[#6e6e73]">{article.titleEn}</p>}
+        <div className="flex flex-wrap gap-2 mb-4">
+          {article.tags.map((tag) => (
+            <span
+              key={tag}
+              className="px-3 py-1 bg-[#f5f5f7] text-[#6e6e73] rounded-full text-sm"
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
         <div className="flex gap-4 text-sm text-[#6e6e73]">
           <span>{article.date}</span>
           <span>·</span>
@@ -33,9 +53,25 @@ export default async function ArticlePage({ params }: ArticlePageProps) {
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-lg border border-[#d2d2d7] p-8">
-        <h2 className="text-2xl font-semibold text-[#1d1d1f] mb-4">文章内容</h2>
-        <p className="text-[#1d1d1f] leading-relaxed">{article.content}</p>
+      <div className="bg-white rounded-2xl shadow-lg border border-[#d2d2d7] p-8 space-y-8">
+        <section>
+          <h2 className="text-2xl font-semibold text-[#1d1d1f] mb-4">中文内容</h2>
+          <div className="text-[#1d1d1f] leading-relaxed whitespace-pre-wrap">
+            {article.content}
+          </div>
+        </section>
+
+        {article.contentEn && (
+          <>
+            <hr className="border-[#d2d2d7]" />
+            <section>
+              <h2 className="text-2xl font-semibold text-[#1d1d1f] mb-4">English Content</h2>
+              <div className="text-[#1d1d1f] leading-relaxed whitespace-pre-wrap">
+                {article.contentEn}
+              </div>
+            </section>
+          </>
+        )}
       </div>
 
       <div className="bg-white rounded-2xl shadow-lg border border-[#d2d2d7] p-8">
