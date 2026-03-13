@@ -41,7 +41,17 @@ export default async function BookDetailPage({ params }: BookDetailPageProps) {
             <div className="text-sm text-[#6e6e73] mb-2">{book.publicationYear}</div>
             <h1 className="text-4xl font-bold text-[#1d1d1f] mb-2">{book.title}</h1>
             <p className="text-xl text-[#6e6e73] mb-4">{book.titleEn}</p>
-            <p className="text-lg text-[#1d1d1f] mb-2">作者：{book.author} / {book.authorEn}</p>
+            <p className="text-lg text-[#1d1d1f] mb-4">作者：{book.author} / {book.authorEn}</p>
+            {book.link && (
+              <a
+                href={book.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 bg-[#0071e3] text-white px-6 py-3 rounded-full hover:bg-[#0077ed] transition-colors"
+              >
+                📚 查看原著
+              </a>
+            )}
           </div>
         </div>
 

@@ -37,6 +37,7 @@ export interface Book {
   cover?: string;
   description: string;
   descriptionEn?: string;
+  link?: string;
   coreViews: string[];
   investmentAdvice: string[];
 }
@@ -96,6 +97,7 @@ export const investors: Investor[] = [
         cover: "https://upload.wikimedia.org/wikipedia/en/7/7d/The_Snowball_cover.jpg",
         description: "这本书是巴菲特唯一授权的官方传记，全面展现了他的投资生涯和人生智慧。",
         descriptionEn: "This is the only authorized biography of Warren Buffett, comprehensively showcasing his investment career and life wisdom.",
+        link: "https://www.amazon.com/Snowball-Warren-Buffett-Business-Life/dp/0553384619",
         coreViews: [
           "人生就像滚雪球，重要的是找到很湿的雪和很长的坡",
           "投资的关键在于复利的力量",
@@ -151,6 +153,7 @@ export const investors: Investor[] = [
         cover: "https://upload.wikimedia.org/wikipedia/en/8/8d/Poor_Charlie%27s_Almanack.jpg",
         description: "这本书汇集了查理·芒格最重要的演讲和文章，展示了他的多元思维模型和人生智慧。",
         descriptionEn: "This book collects Charlie Munger's most important speeches and articles, showcasing his multidisciplinary mental models and life wisdom.",
+        link: "https://www.amazon.com/Poor-Charlies-Almanack-Wit-Wisdom/dp/1578645018",
         coreViews: [
           "多元思维模型是做出正确决策的关键",
           "逆向思考：如果我知道我会死在哪里，我就永远不去那里",
@@ -206,6 +209,7 @@ export const investors: Investor[] = [
         cover: "https://upload.wikimedia.org/wikipedia/en/5/5a/The_Intelligent_Investor.jpg",
         description: "巴菲特称之为\"有史以来最伟大的投资著作\"，奠定了价值投资的理论基础。",
         descriptionEn: "Warren Buffett called it \"the greatest book on investing ever written\", laying the theoretical foundation for value investing.",
+        link: "https://www.amazon.com/Intelligent-Investor-Definitive-Finance-Classics/dp/0060555661",
         coreViews: [
           "投资是建立在透彻分析基础上的，确保本金安全和满意回报的操作",
           "市场先生是你的仆人，不是你的向导",
@@ -227,6 +231,7 @@ export const investors: Investor[] = [
         cover: "https://upload.wikimedia.org/wikipedia/en/4/4d/Security_Analysis.jpg",
         description: "价值投资的圣经，系统阐述了证券分析的理论和方法。",
         descriptionEn: "The Bible of value investing, systematically explaining the theory and methods of security analysis.",
+        link: "https://www.amazon.com/Security-Analysis-6th-Benjamin-Graham/dp/0071592539",
         coreViews: [
           "证券分析的目的是评估证券的内在价值",
           "区分成长股和价值股",
@@ -261,6 +266,7 @@ export const investors: Investor[] = [
         cover: "https://upload.wikimedia.org/wikipedia/en/9/9f/One_Up_On_Wall_Street.jpg",
         description: "彼得·林奇的经典著作，告诉普通人如何利用自己的优势在股市中赚钱。",
         descriptionEn: "Peter Lynch's classic book, teaching ordinary people how to use their advantages to make money in the stock market.",
+        link: "https://www.amazon.com/One-Up-Wall-Street-Already/dp/0743200403",
         coreViews: [
           "普通人在投资上有自己的优势，能发现专业投资者忽略的机会",
           "投资你熟悉的公司",
@@ -295,6 +301,7 @@ export const investors: Investor[] = [
         cover: "https://upload.wikimedia.org/wikipedia/en/3/3b/The_Alchemy_of_Finance.jpg",
         description: "索罗斯阐述反身性理论的经典著作，揭示了金融市场的运作规律。",
         descriptionEn: "Soros' classic work explaining the theory of reflexivity, revealing the workings of financial markets.",
+        link: "https://www.amazon.com/Alchemy-Finance-George-Soros/dp/0471138144",
         coreViews: [
           "反身性理论：市场参与者的思维和市场实际情况相互影响",
           "市场总是错的",
@@ -329,6 +336,7 @@ export const investors: Investor[] = [
         cover: "https://upload.wikimedia.org/wikipedia/en/1/1a/The_Templeton_Plan.jpg",
         description: "邓普顿分享他的投资智慧和人生哲学，强调逆向投资的重要性。",
         descriptionEn: "Templeton shares his investment wisdom and life philosophy, emphasizing the importance of contrarian investing.",
+        link: "https://www.amazon.com/Templeton-Plan-Steps-Personal-Happiness/dp/0060923459",
         coreViews: [
           "在别人贪婪时恐惧，在别人恐惧时贪婪",
           "全球分散投资，不要把鸡蛋放在一个篮子里",
@@ -363,6 +371,7 @@ export const investors: Investor[] = [
         cover: "https://upload.wikimedia.org/wikipedia/en/3/3f/Common_Stocks_and_Uncommon_Profits.jpg",
         description: "成长投资的经典著作，巴菲特说他85%是格雷厄姆，15%是费雪。",
         descriptionEn: "A classic work on growth investing. Warren Buffett said he was 85% Graham and 15% Fisher.",
+        link: "https://www.amazon.com/Common-Stocks-Uncommon-Profits-Wiley/dp/0471119541",
         coreViews: [
           "投资优秀的成长企业，长期持有",
           "注重企业的管理层质量",
@@ -397,6 +406,7 @@ export const investors: Investor[] = [
         cover: "https://upload.wikimedia.org/wikipedia/en/5/5a/Margin_of_Safety.jpg",
         description: "价值投资的经典之作，现已绝版，二手书价格高达数千美元。",
         descriptionEn: "A classic work on value investing, now out of print, with used copies selling for thousands of dollars.",
+        link: "https://www.amazon.com/Margin-Safety-Risk-Averse-Investing-Strategies/dp/0887305105",
         coreViews: [
           "安全边际是投资最重要的原则",
           "市场是无效的，会出现定价错误",
@@ -431,6 +441,7 @@ export const investors: Investor[] = [
         cover: "https://upload.wikimedia.org/wikipedia/en/3/3d/The_Most_Important_Thing.jpg",
         description: "汇集了马克斯最重要的投资智慧，强调周期和风险控制。",
         descriptionEn: "A collection of Marks' most important investment wisdom, emphasizing cycles and risk control.",
+        link: "https://www.amazon.com/Most-Important-Thing-Uncommon-Thoughtful/dp/0231153688",
         coreViews: [
           "理解市场周期，在周期的不同阶段采取不同的策略",
           "投资的关键是理解风险，而不是避免风险",
@@ -465,6 +476,7 @@ export const investors: Investor[] = [
         cover: "https://upload.wikimedia.org/wikipedia/en/8/8a/Principles_by_Ray_Dalio.jpg",
         description: "达利欧分享他的人生和工作原则，包括投资和管理的智慧。",
         descriptionEn: "Dalio shares his life and work principles, including investment and management wisdom.",
+        link: "https://www.amazon.com/Principles-Life-Work-Ray-Dalio/dp/1501124021",
         coreViews: [
           "痛苦+反思=进步",
           "用原则来指导决策，而不是凭感觉",
@@ -499,6 +511,7 @@ export const investors: Investor[] = [
         cover: "https://upload.wikimedia.org/wikipedia/en/7/7f/Common_Sense_on_Mutual_Funds.jpg",
         description: "指数基金投资的经典之作，倡导低成本、被动投资。",
         descriptionEn: "A classic work on index fund investing, advocating low-cost, passive investing.",
+        link: "https://www.amazon.com/Common-Sense-Mutual-Funds-Imperatives/dp/0470138136",
         coreViews: [
           "指数基金是普通投资者最好的选择",
           "成本很重要，低成本长期复利效应巨大",
