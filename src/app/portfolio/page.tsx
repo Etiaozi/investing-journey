@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, Fragment } from "react";
 
 interface Holding { code: string; name: string; shares: number; costPrice: number; reason?: string; addedAt: string; }
-interface Quote { price: number; changePercent: number; high?: number; low?: number; volume?: string; turnover?: string; pe?: string; marketCap?: string; }
+interface Quote { price: number; changePercent: number; high?: number; low?: number; open?: number; volume?: string; turnover?: string; turnoverRate?: string; pe?: string; marketCap?: string; }
 interface KLine { date: string; open: number; close: number; high: number; low: number; volume: number; volumeYuan: number; }
 interface AnalysisData { industry: string; concepts: string; analysis: string; }
 
@@ -314,11 +314,12 @@ function StockDetail({ name, code, quote, analysis, klines }: {
             <span style={{ fontSize: 14, fontWeight: 600, marginLeft: 8 }}>{pct > 0 ? "+" : ""}{pct.toFixed(2)}%</span>
           </div>
         </div>
-        <MiniStat label="今开" value={quote?.high ? `¥${quote.high}` : "---"} />
-        <MiniStat label="最高" value={quote?.high ? `¥${quote.high}` : "---"} />
-        <MiniStat label="最低" value={quote?.low ? `¥${quote.low}` : "---"} />
+        <MiniStat label="今开" value={quote?.open ? `¥${quote.open.toFixed(2)}` : "---"} />
+        <MiniStat label="最高" value={quote?.high ? `¥${quote.high.toFixed(2)}` : "---"} />
+        <MiniStat label="最低" value={quote?.low ? `¥${quote.low.toFixed(2)}` : "---"} />
         <MiniStat label="成交量" value={quote?.volume || "---"} />
         <MiniStat label="成交额" value={quote?.turnover || "---"} />
+        <MiniStat label="换手率" value={quote?.turnoverRate || "---"} />
       </div>
 
       {/* 10日走势图 */}
@@ -351,74 +352,86 @@ function KLineChart({ data, color }: { data: KLine[]; color: string }) {
   const minPrice = Math.min(...prices) * 0.995;
   const maxPrice = Math.max(...prices) * 1.005;
   const range = maxPrice - minPrice || 1;
-  const chartW = 100;
-  const chartH = 60;
+  const N = data.length;
+  // 每根K线占宽60px（含间距），总宽度 N*60
+  const cellW = 60;
+  const kLineW = 42;      // K线实体宽度
+  const volW = 26;        // 成交量柱宽度
+  const chartH = 54;
+  const volH = 26;
 
-  // 成交量
   const volumes = data.map(d => d.volume);
   const maxVol = Math.max(...volumes) || 1;
+
+  // 格式化成交量:
+  const fmtVol = (v: number) => v >= 10000 ? (v / 10000).toFixed(1) + '万' : v.toFixed(0);
 
   return (
     <div style={{ marginBottom: 12 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-        <span style={{ color: c.sub, fontSize: 11 }}>近10日走势</span>
+        <span style={{ color: c.sub, fontSize: 11 }}>近10日走势（K线+成交量）</span>
         <span style={{ color: c.sub, fontSize: 10 }}>
           {data[0].date.slice(5)} ~ {data[data.length - 1].date.slice(5)}
         </span>
       </div>
 
-      {/* 价格折线 */}
-      <svg viewBox={`0 0 ${chartW * data.length} ${chartH}`}
-        style={{ width: "100%", height: 60, background: "#f5f5f5", borderRadius: 4, marginBottom: 2 }}>
-        {/* 网格线 */}
-        {[0, 25, 50, 75, 100].map(pct => (
-          <line key={pct} x1="0" y1={chartH * (1 - pct / 100)} x2={chartW * data.length} y2={chartH * (1 - pct / 100)}
-            stroke="#e8e8e8" strokeWidth="0.5" />
-        ))}
-        {/* K线 */}
-        {data.map((k, i) => {
-          const x = i * chartW + chartW * 0.2;
-          const barW = chartW * 0.6;
-          const isUp = k.close >= k.open;
-          const clr = isUp ? c.rise : c.fall;
-          const yHigh = chartH * (1 - (k.high - minPrice) / range);
-          const yLow = chartH * (1 - (k.low - minPrice) / range);
-          const yOpen = chartH * (1 - (k.open - minPrice) / range);
-          const yClose = chartH * (1 - (k.close - minPrice) / range);
-          return (
-            <g key={k.date}>
-              {/* 影线 */}
-              <line x1={x + barW / 2} y1={yHigh} x2={x + barW / 2} y2={yLow}
-                stroke={clr} strokeWidth="1" />
-              {/* 实体 */}
-              <rect x={x} y={Math.min(yOpen, yClose)} width={barW}
-                height={Math.max(Math.abs(yClose - yOpen), 1)}
-                fill={clr} rx="0.5" />
-            </g>
-          );
-        })}
-      </svg>
+      <div style={{ position: "relative" }}>
+        {/* K线 + 成交量合并SVG */}
+        <svg viewBox={`0 0 ${N * cellW} ${chartH + volH + 2}`}
+          style={{ width: "100%", height: chartH + volH + 2, background: "#f5f5f5", borderRadius: 4 }}>
+          
+          {/* 价格网格线 */}
+          {[0, 25, 50, 75, 100].map(pct => (
+            <line key={'g'+pct} x1="0" y1={chartH * (1 - pct / 100)} x2={N * cellW} y2={chartH * (1 - pct / 100)}
+              stroke="#e0e0e0" strokeWidth="0.5" />
+          ))}
+          {/* 成交量区分隔线 */}
+          <line x1="0" y1={chartH + 1} x2={N * cellW} y2={chartH + 1} stroke="#d0d0d0" strokeWidth="0.5" />
+          
+          {/* K线 */}
+          {data.map((k, i) => {
+            const cx = i * cellW + cellW / 2;
+            const isUp = k.close >= k.open;
+            const clr = isUp ? c.rise : c.fall;
+            const yHigh = chartH * (1 - (k.high - minPrice) / range);
+            const yLow = chartH * (1 - (k.low - minPrice) / range);
+            const yOpen = chartH * (1 - (k.open - minPrice) / range);
+            const yClose = chartH * (1 - (k.close - minPrice) / range);
+            return (
+              <g key={k.date}>
+                {/* 影线 */}
+                <line x1={cx} y1={yHigh} x2={cx} y2={yLow}
+                  stroke={clr} strokeWidth="0.8" />
+                {/* 实体 */}
+                <rect x={cx - kLineW / 2} y={Math.min(yOpen, yClose)} width={kLineW}
+                  height={Math.max(Math.abs(yClose - yOpen), 1)}
+                  fill={clr} rx="0.5" />
+              </g>
+            );
+          })}
 
-      {/* 成交量柱状图 */}
-      <svg viewBox={`0 0 ${chartW * data.length} 30`}
-        style={{ width: "100%", height: 30, background: "#f5f5f5", borderRadius: 4 }}>
-        {data.map((k, i) => {
-          const x = i * chartW + chartW * 0.15;
-          const barW = chartW * 0.7;
-          const barH = (k.volume / maxVol) * 26;
-          const isUp = i > 0 ? k.close >= data[i - 1].close : k.close >= k.open;
-          return (
-            <rect key={k.date} x={x} y={30 - barH} width={barW} height={barH}
-              fill={isUp ? c.rise : c.fall} opacity="0.5" rx="1" />
-          );
-        })}
-      </svg>
+          {/* 成交量柱（窄） */}
+          {data.map((k, i) => {
+            const cx = i * cellW + cellW / 2;
+            const barH2 = (k.volume / maxVol) * (volH - 4);
+            const isUp = i > 0 ? k.close >= data[i - 1].close : k.close >= k.open;
+            return (
+              <rect key={'v'+k.date} x={cx - volW / 2} y={chartH + 2 + (volH - 4 - barH2)}
+                width={volW} height={barH2}
+                fill={isUp ? c.rise : c.fall} opacity="0.5" rx="1" />
+            );
+          })}
+        </svg>
 
-      {/* 日期标签 */}
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: c.sub, marginTop: 2 }}>
-        {data.filter((_, i) => data.length > 5 ? (i % Math.ceil(data.length / 5) === 0) : true).map(k => (
-          <span key={k.date}>{k.date.slice(5).replace("-", "/")}</span>
-        ))}
+        {/* 日期 + 成交量数值标签，放在图表下方 */}
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 8, color: c.sub, marginTop: 1 }}>
+          {data.map((k, i) => (
+            <div key={k.date} style={{ textAlign: "center", width: cellW / (N * cellW / Math.min(N*cellW, window.innerWidth-48)) + 'px', overflow: 'hidden' }}>
+              <div style={{ fontSize: 8 }}>{k.date.slice(5).replace("-", "/")}</div>
+              <div style={{ fontSize: 7, color: k.close >= (i > 0 ? data[i-1].close : k.open) ? c.rise : c.fall }}>{fmtVol(k.volume)}</div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

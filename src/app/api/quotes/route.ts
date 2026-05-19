@@ -64,14 +64,17 @@ async function fetchRealQuotes(codes: string[]): Promise<Record<string, any>> {
       const high = parseFloat(parts[33]) || 0;
       const low = parseFloat(parts[34]) || 0;
       const turnoverYuan = parseFloat(parts[37]) || 0;
+      const turnoverRate = parseFloat(parts[38]) || 0;
       result[code] = {
         price: Math.round(price * 100) / 100,
         changePercent: Math.round(changePct * 100) / 100,
         high: Math.round(high * 100) / 100,
         low: Math.round(low * 100) / 100,
+        open: parseFloat(parts[5]) || 0,
         volume: volumeHand >= 10000 ? (volumeHand / 10000).toFixed(1) + "万手" : volumeHand.toFixed(0) + "手",
         turnover: turnoverYuan >= 100000000 ? (turnoverYuan / 100000000).toFixed(2) + "亿" : turnoverYuan >= 10000 ? (turnoverYuan / 10000).toFixed(0) + "万" : turnoverYuan.toFixed(0),
-        pe: "---",
+        turnoverRate: turnoverRate.toFixed(2) + "%",
+        pe: parseFloat(parts[39]) ? parseFloat(parts[39]).toFixed(2) : "---",
         marketCap: "---",
         name: parts[1],
       };
