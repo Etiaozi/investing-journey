@@ -8,6 +8,21 @@ interface KLine { date: string; open: number; close: number; high: number; low: 
 interface AnalysisData { industry: string; concepts: string; analysis: string; }
 
 const c = { rise: "#e74c3c", fall: "#27ae60", flat: "#333", border: "#e0e0e0", text: "#1a1a1a", sub: "#888" };
+const LS_KEY = "investing_holdings_v1";
+
+function loadLocalHoldings(): Record<string, {shares:number;costPrice:number}> {
+  try{ const r=localStorage.getItem(LS_KEY); return r?JSON.parse(r):{}; }catch{ return {}; }
+}
+function saveLocalHoldings(h: Record<string,{shares:number;costPrice:number}>) {
+  try{ localStorage.setItem(LS_KEY, JSON.stringify(h)); }catch{}
+}
+function mergeHoldings(list: Holding[], local: Record<string,{shares:number;costPrice:number}>): Holding[] {
+  return list.map(h => {
+    const l = local[h.code.toUpperCase()];
+    if (l && (l.shares !== h.shares || l.costPrice !== h.costPrice)) return {...h, shares: l.shares, costPrice: l.costPrice};
+    return h;
+  });
+}
 
 const analysisData: Record<string, AnalysisData> = {
   "688710": { industry: "CRO/生物医药", concepts: "CAR-T细胞疗法 · CRO · 创新药 · 央国企改革 · 沪股通", analysis: "国药集团旗下CRO企业。2026Q1净利润同比+121%，毛利率回升至30.76%，营收拐点确认。机构持股66%，筹码集中度高。中线看2026全年扭亏预期，若Q2延续增长趋势目标70-75元。风险：2027年9月有4852万股解禁。" },
@@ -48,8 +63,10 @@ export default function PortfolioPage() {
       const r = await fetch("/api/portfolio");
       const d = await r.json();
       if (d.watchlist) {
-        setData(d);
-        const codes = d.watchlist.map((s: Holding) => s.code);
+        const local = loadLocalHoldings();
+        const merged = mergeHoldings(d.watchlist, local);
+        setData({ watchlist: merged });
+        const codes = merged.map((s: Holding) => s.code);
         if (codes.length > 0) {
           try {
             const qr = await fetch("/api/quotes", {
@@ -99,6 +116,10 @@ export default function PortfolioPage() {
       const addRes = await fetch("/api/portfolio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code, name: stockName, shares: parseFloat(sharesInput) || 0, costPrice: parseFloat(costPriceInput) || 0, reason }) });
       const addData = await addRes.json();
       if (!addRes.ok) { toast(addData.error, "error"); setAdding(false); return; }
+      // 同步持仓到localStorage
+      const localHold = loadLocalHoldings();
+      localHold[code] = { shares: parseFloat(sharesInput) || 0, costPrice: parseFloat(costPriceInput) || 0 };
+      saveLocalHoldings(localHold);
       toast(`✅ 已添加 ${stockName}（${code}）`, "success");
       setCodeInput(""); setSharesInput(""); setCostPriceInput("");
       fetchAll();
@@ -111,6 +132,9 @@ export default function PortfolioPage() {
     try {
       const r = await fetch("/api/portfolio", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: c }) });
       if (!r.ok) { const d = await r.json(); toast(d.error, "error"); return; }
+      const local = loadLocalHoldings();
+      delete local[c.toUpperCase()];
+      saveLocalHoldings(local);
       toast(`已移除 ${n}`, "success"); fetchAll();
     } catch { toast("网络错误", "error"); }
   };
@@ -121,10 +145,16 @@ export default function PortfolioPage() {
   };
 
   const saveEdit = async () => {
+    const shares = parseFloat(editShares) || 0;
+    const costPrice = parseFloat(editCost) || 0;
     try {
-      const r = await fetch("/api/portfolio", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: editCode, name: editName, shares: parseFloat(editShares) || 0, costPrice: parseFloat(editCost) || 0, reason: editReason }) });
+      const r = await fetch("/api/portfolio", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: editCode, name: editName, shares, costPrice, reason: editReason }) });
       const d = await r.json();
       if (!r.ok) { toast(d.error, "error"); return; }
+      // 立即同步到localStorage（Vercel冷启动丢失保护）
+      const local = loadLocalHoldings();
+      local[editCode.toUpperCase()] = { shares, costPrice };
+      saveLocalHoldings(local);
       toast(`✅ 已更新 ${editName}`, "success");
       setEditing(null); fetchAll();
     } catch { toast("网络错误", "error"); }
@@ -260,7 +290,7 @@ export default function PortfolioPage() {
       )}
 
       <div style={{ marginTop: 20, fontSize: 12, color: c.sub, textAlign: "center", lineHeight: 1.8 }}>
-        <p>💡 点击股票名称展开分析+10日走势图 · 点击"刷新行情"同步最新价</p>
+        <p>💡 点击股票名称展开分析+10日走势图 · 持仓数据本地持久化，刷新不丢失</p>
         <p>本页面由 虾大力 🦐 驱动 · 使用腾讯行情+妙想数据分析</p>
       </div>
     </div>
