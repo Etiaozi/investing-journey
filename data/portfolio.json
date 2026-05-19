@@ -110,7 +110,16 @@
     {
       "id": "mpcfnzlsjvzn",
       "name": "test",
-      "stocks": []
+      "stocks": [
+        {
+          "code": "600031",
+          "name": "三一重工",
+          "shares": 0,
+          "costPrice": 0,
+          "reason": "主板蓝筹 · 上交所主板 · 沪市主板 · AI自动分析生成",
+          "addedAt": "2026-05-19T09:31:47.793Z"
+        }
+      ]
     }
   ],
   "activeGroup": "mpcfnzlsjvzn",
