@@ -60,7 +60,7 @@ export default function PortfolioPage() {
 
   const fetchAll = useCallback(async (fetchKline: boolean = false) => {
     try {
-      const r = await fetch("/api/portfolio");
+      const r = await fetch("/api/portfolio-github");
       const d = await r.json();
       if (d.watchlist) {
         const local = loadLocalHoldings();
@@ -113,7 +113,7 @@ export default function PortfolioPage() {
       if (!info.found) { toast(`未找到代码 ${code}`, "error"); setAdding(false); return; }
       const stockName = info.name || `个股${code}`;
       const reason = info.reason || (info.industry ? `${info.industry} · ${(info.concepts || []).slice(0, 3).join(" ")}` : "");
-      const addRes = await fetch("/api/portfolio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code, name: stockName, shares: parseFloat(sharesInput) || 0, costPrice: parseFloat(costPriceInput) || 0, reason }) });
+      const addRes = await fetch("/api/portfolio-github", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code, name: stockName, shares: parseFloat(sharesInput) || 0, costPrice: parseFloat(costPriceInput) || 0, reason }) });
       const addData = await addRes.json();
       if (!addRes.ok) { toast(addData.error, "error"); setAdding(false); return; }
       // 同步持仓到localStorage
@@ -130,7 +130,7 @@ export default function PortfolioPage() {
   const remove = async (c: string, n: string) => {
     if (!confirm(`移除 ${n}？`)) return;
     try {
-      const r = await fetch("/api/portfolio", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: c }) });
+      const r = await fetch("/api/portfolio-github", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: c }) });
       if (!r.ok) { const d = await r.json(); toast(d.error, "error"); return; }
       const local = loadLocalHoldings();
       delete local[c.toUpperCase()];
@@ -148,7 +148,7 @@ export default function PortfolioPage() {
     const shares = parseFloat(editShares) || 0;
     const costPrice = parseFloat(editCost) || 0;
     try {
-      const r = await fetch("/api/portfolio", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: editCode, name: editName, shares, costPrice, reason: editReason }) });
+      const r = await fetch("/api/portfolio-github", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: editCode, name: editName, shares, costPrice, reason: editReason }) });
       const d = await r.json();
       if (!r.ok) { toast(d.error, "error"); return; }
       // 立即同步到localStorage（Vercel冷启动丢失保护）
