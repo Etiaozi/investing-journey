@@ -3,9 +3,9 @@
     {
       "code": "688710",
       "name": "益诺思",
-      "shares": 0,
-      "costPrice": 0,
-      "reason": "CRO央企，2026Q1业绩拐点+121%，机构持股66%",
+      "shares": 100,
+      "costPrice": 65.5,
+      "reason": "测试持久化",
       "addedAt": "2026-05-19T00:00:00.000Z"
     },
     {
