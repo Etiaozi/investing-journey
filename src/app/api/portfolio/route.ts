@@ -2,139 +2,127 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 
-// Use /tmp for Vercel serverless (read-only filesystem elsewhere)
 const DATA_DIR = path.join(process.env.VERCEL ? "/tmp" : process.cwd(), "data");
 const DATA_FILE = path.join(DATA_DIR, "portfolio.json");
 
-interface Stock {
+interface Holding {
   code: string;
   name: string;
-  addedAt: string;
+  shares: number;       // 持仓股数
+  costPrice: number;    // 成本价
   reason?: string;
-  price?: number;
-  changePercent?: number;
+  addedAt: string;
+}
+
+export interface PortfolioData {
+  watchlist: Holding[];
+  refreshPrice: boolean; // 是否自动刷新行情
 }
 
 function ensureDataDir() {
   try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     if (!fs.existsSync(DATA_FILE)) {
-      fs.writeFileSync(DATA_FILE, JSON.stringify({ stocks: [] }, null, 2));
+      fs.writeFileSync(DATA_FILE, JSON.stringify({ watchlist: [], refreshPrice: false }, null, 2));
     }
-  } catch (e: any) {
-    console.error("ensureDataDir error:", e.message);
-    throw e;
-  }
+  } catch { /* noop */ }
 }
 
-function readStocks(): Stock[] {
+function readData(): PortfolioData {
   ensureDataDir();
   try {
     if (fs.existsSync(DATA_FILE)) {
       const raw = fs.readFileSync(DATA_FILE, "utf-8");
-      const data = JSON.parse(raw);
-      return data.stocks || [];
+      return JSON.parse(raw);
     }
-    return [];
-  } catch (e: any) {
-    console.error("readStocks error:", e.message);
-    return [];
-  }
+  } catch { /* noop */ }
+  return { watchlist: [], refreshPrice: false };
 }
 
-function writeStocks(stocks: Stock[]) {
+function writeData(data: PortfolioData) {
   ensureDataDir();
-  fs.writeFileSync(DATA_FILE, JSON.stringify({ stocks }, null, 2));
+  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
 }
 
-// GET: 获取所有自选股
 export async function GET() {
   try {
-    const stocks = readStocks();
-    return NextResponse.json({ stocks });
+    const data = readData();
+    return NextResponse.json(data);
   } catch (e: any) {
-    return NextResponse.json({ error: e.message, stocks: [] }, { status: 200 });
+    return NextResponse.json({ error: e.message, watchlist: [] }, { status: 200 });
   }
 }
 
-// POST: 添加自选股
 export async function POST(request: NextRequest) {
   try {
     const text = await request.text();
-    console.log("POST received:", text);
-    let body;
-    try {
-      body = JSON.parse(text);
-    } catch {
-      return NextResponse.json({ error: "JSON解析失败: " + text.substring(0, 100) }, { status: 400 });
-    }
-    const { code, name, reason } = body;
+    const body = JSON.parse(text);
+    const { code, name, shares, costPrice, reason } = body;
 
-    if (!code || !name) {
-      return NextResponse.json({ error: "股票代码和名称不能为空" }, { status: 400 });
+    if (!code || !name) return NextResponse.json({ error: "股票代码和名称不能为空" }, { status: 400 });
+
+    const data = readData();
+
+    if (data.watchlist.find((s) => s.code === code.toUpperCase())) {
+      return NextResponse.json({ error: `${name} 已在列表中` }, { status: 409 });
     }
 
-    let stocks: Stock[] = [];
-    try {
-      stocks = readStocks();
-    } catch (e: any) {
-      console.error("readStocks error:", e.message);
-      // If data dir is not writable, use in-memory
-    }
-
-    if (stocks.find((s) => s.code === code.toUpperCase())) {
-      return NextResponse.json({ error: `${name} 已在自选列表中` }, { status: 409 });
-    }
-
-    const newStock: Stock = {
+    const newItem: Holding = {
       code: code.toUpperCase(),
       name,
+      shares: shares || 0,
+      costPrice: costPrice || 0,
       reason: reason || undefined,
       addedAt: new Date().toISOString(),
     };
 
-    stocks.push(newStock);
-    
-    try {
-      writeStocks(stocks);
-    } catch (e: any) {
-      console.error("writeStocks error:", e.message);
-      return NextResponse.json({ error: "数据写入失败: " + e.message }, { status: 500 });
-    }
+    data.watchlist.push(newItem);
+    writeData(data);
 
-    return NextResponse.json({ success: true, stock: newStock });
+    return NextResponse.json({ success: true, item: newItem });
   } catch (e: any) {
     return NextResponse.json({ error: "服务器错误: " + e.message }, { status: 500 });
   }
 }
 
-// DELETE: 删除自选股
+export async function PUT(request: NextRequest) {
+  try {
+    const text = await request.text();
+    const body = JSON.parse(text);
+    const { code, shares, costPrice, reason, name } = body;
+
+    if (!code) return NextResponse.json({ error: "请提供股票代码" }, { status: 400 });
+
+    const data = readData();
+    const idx = data.watchlist.findIndex((s) => s.code === code.toUpperCase());
+    if (idx === -1) return NextResponse.json({ error: "未找到该股票" }, { status: 404 });
+
+    if (shares !== undefined) data.watchlist[idx].shares = shares;
+    if (costPrice !== undefined) data.watchlist[idx].costPrice = costPrice;
+    if (reason !== undefined) data.watchlist[idx].reason = reason;
+    if (name !== undefined) data.watchlist[idx].name = name;
+
+    writeData(data);
+    return NextResponse.json({ success: true, item: data.watchlist[idx] });
+  } catch (e: any) {
+    return NextResponse.json({ error: "服务器错误: " + e.message }, { status: 500 });
+  }
+}
+
 export async function DELETE(request: NextRequest) {
   try {
     const text = await request.text();
-    let body;
-    try {
-      body = JSON.parse(text);
-    } catch {
-      return NextResponse.json({ error: "JSON解析失败" }, { status: 400 });
-    }
+    const body = JSON.parse(text);
     const { code } = body;
 
-    if (!code) {
-      return NextResponse.json({ error: "请提供股票代码" }, { status: 400 });
-    }
+    if (!code) return NextResponse.json({ error: "请提供股票代码" }, { status: 400 });
 
-    let stocks = readStocks();
-    const initialLength = stocks.length;
-    stocks = stocks.filter((s) => s.code !== code.toUpperCase());
+    const data = readData();
+    const initial = data.watchlist.length;
+    data.watchlist = data.watchlist.filter((s) => s.code !== code.toUpperCase());
+    if (data.watchlist.length === initial) return NextResponse.json({ error: "未找到该股票" }, { status: 404 });
 
-    if (stocks.length === initialLength) {
-      return NextResponse.json({ error: "未找到该股票" }, { status: 404 });
-    }
-
-    writeStocks(stocks);
+    writeData(data);
     return NextResponse.json({ success: true });
   } catch (e: any) {
     return NextResponse.json({ error: "服务器错误: " + e.message }, { status: 500 });

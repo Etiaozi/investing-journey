@@ -2,213 +2,333 @@
 
 import { useState, useEffect, useCallback } from "react";
 
-interface Stock {
+interface Holding {
   code: string;
   name: string;
-  addedAt: string;
+  shares: number;
+  costPrice: number;
   reason?: string;
-  price?: number;
-  changePercent?: number;
+  addedAt: string;
 }
 
+interface PortfolioData {
+  watchlist: Holding[];
+  refreshPrice: boolean;
+}
+
+// 简单颜色方案
+const colors = {
+  rise: "#e74c3c",   // 东方财富红涨绿跌
+  fall: "#27ae60",
+  flat: "#333",
+  bg: "#f8f9fa",
+  card: "#fff",
+  border: "#e0e0e0",
+  text: "#1a1a1a",
+  sub: "#888",
+};
+
 export default function PortfolioPage() {
-  const [stocks, setStocks] = useState<Stock[]>([]);
+  const [data, setData] = useState<PortfolioData>({ watchlist: [], refreshPrice: false });
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState({ text: "", type: "" as "success" | "error" });
+
+  // 表单状态
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
+  const [shares, setShares] = useState("");
+  const [costPrice, setCostPrice] = useState("");
   const [reason, setReason] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [editing, setEditing] = useState<string | null>(null);
 
-  const fetchStocks = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     try {
       const res = await fetch("/api/portfolio");
-      const data = await res.json();
-      if (data.stocks) setStocks(data.stocks);
+      const d = await res.json();
+      if (d.watchlist) setData(d);
     } catch (e) {
-      console.error("获取自选股失败", e);
+      console.error(e);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchStocks();
-  }, [fetchStocks]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
-  const addStock = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!code.trim() || !name.trim()) {
-      setError("请填写股票代码和名称");
-      return;
-    }
-
-    setError("");
-    setSuccess("");
-
-    try {
-      const res = await fetch("/api/portfolio", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          code: code.trim().toUpperCase(),
-          name: name.trim(),
-          reason: reason.trim(),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "添加失败");
-        return;
-      }
-      setSuccess(`✅ ${name} 已添加到自选奔富`);
-      setCode("");
-      setName("");
-      setReason("");
-      fetchStocks();
-    } catch {
-      setError("网络错误，请重试");
-    }
+  const showMsg = (text: string, type: "success" | "error") => {
+    setMessage({ text, type });
+    setTimeout(() => setMessage({ text: "", type: "" as any }), 3000);
   };
 
-  const removeStock = async (stockCode: string) => {
-    if (!confirm("确认移除此股票？")) return;
+  const addOrUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!code.trim() || !name.trim()) { showMsg("请填写股票代码和名称", "error"); return; }
 
+    const payload = {
+      code: code.trim().toUpperCase(),
+      name: name.trim(),
+      shares: parseFloat(shares) || 0,
+      costPrice: parseFloat(costPrice) || 0,
+      reason: reason.trim(),
+    };
+
+    try {
+      const method = editing ? "PUT" : "POST";
+      const url = editing ? `/api/portfolio` : `/api/portfolio`;
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const result = await res.json();
+      if (!res.ok) { showMsg(result.error, "error"); return; }
+      showMsg(editing ? `✅ ${name} 已更新` : `✅ ${name} 已添加`, "success");
+      resetForm();
+      fetchData();
+    } catch { showMsg("网络错误", "error"); }
+  };
+
+  const removeStock = async (stockCode: string, stockName: string) => {
+    if (!confirm(`确认移除 ${stockName}？`)) return;
     try {
       const res = await fetch("/api/portfolio", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code: stockCode }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "删除失败");
-        return;
-      }
-      setSuccess(`已移除 ${stockCode}`);
-      fetchStocks();
-    } catch {
-      setError("网络错误，请重试");
-    }
+      if (!res.ok) { const d = await res.json(); showMsg(d.error, "error"); return; }
+      showMsg(`已移除 ${stockName}`, "success");
+      fetchData();
+    } catch { showMsg("网络错误", "error"); }
   };
 
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString("zh-CN", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
+  const editStock = (item: Holding) => {
+    setEditing(item.code);
+    setCode(item.code);
+    setName(item.name);
+    setShares(item.shares.toString());
+    setCostPrice(item.costPrice.toString());
+    setReason(item.reason || "");
   };
 
-  const getChangeColor = (pct?: number) => {
-    if (!pct) return "";
-    return pct > 0 ? "text-green-600" : pct < 0 ? "text-red-600" : "";
+  const resetForm = () => {
+    setEditing(null);
+    setCode("");
+    setName("");
+    setShares("");
+    setCostPrice("");
+    setReason("");
   };
+
+  // 计算持仓汇总
+  const totalInvested = data.watchlist.reduce((s, h) => s + h.shares * h.costPrice, 0);
+  const totalStocks = data.watchlist.length;
+  const withPosition = data.watchlist.filter((h) => h.shares > 0).length;
+
+  const fmt = (n: number) => n.toFixed(2);
 
   return (
-    <div className="space-y-8">
-      <section className="text-center space-y-3">
-        <h1 className="text-4xl font-bold text-[#1d1d1f]">自选奔富 🚀</h1>
-        <p className="text-lg text-[#6e6e73] max-w-2xl mx-auto">
-          管理你的长期跟踪股票池，精研个股，静待花开
-        </p>
-      </section>
+    <div style={{ maxWidth: 1400, margin: "0 auto", padding: "0 16px 40px" }}>
+      {/* 头部 */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <h1 style={{ fontSize: 24, fontWeight: 700, color: colors.text }}>自选奔富 🚀</h1>
+        <span style={{ fontSize: 13, color: colors.sub }}>
+          {totalStocks} 只关注 · {withPosition} 只有持仓
+        </span>
+      </div>
 
-      {/* 添加表单 */}
-      <section className="bg-white rounded-2xl shadow-lg border border-[#d2d2d7] p-6">
-        <h2 className="text-xl font-semibold text-[#1d1d1f] mb-4">添加跟踪股票</h2>
-        <form onSubmit={addStock} className="flex flex-col md:flex-row gap-3">
-          <input
-            type="text"
-            placeholder="股票代码（如 688710）"
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            className="flex-1 px-4 py-2.5 border border-[#d2d2d7] rounded-xl focus:outline-none focus:border-[#0071e3] text-sm"
-          />
-          <input
-            type="text"
-            placeholder="股票名称（如 益诺思）"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="flex-1 px-4 py-2.5 border border-[#d2d2d7] rounded-xl focus:outline-none focus:border-[#0071e3] text-sm"
-          />
-          <input
-            type="text"
-            placeholder="关注原因（可选）"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            className="flex-1 px-4 py-2.5 border border-[#d2d2d7] rounded-xl focus:outline-none focus:border-[#0071e3] text-sm"
-          />
-          <button
-            type="submit"
-            className="px-6 py-2.5 bg-[#0071e3] text-white rounded-xl hover:bg-[#0077ed] transition-colors font-medium whitespace-nowrap"
-          >
-            添加
+      {/* 持仓汇总 */}
+      {withPosition > 0 && (
+        <div style={{
+          background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+          borderRadius: 12, padding: "16px 20px", marginBottom: 16,
+          color: "#fff", display: "flex", gap: 32, flexWrap: "wrap",
+        }}>
+          <div>
+            <div style={{ fontSize: 12, opacity: 0.8 }}>持仓只数</div>
+            <div style={{ fontSize: 22, fontWeight: 700 }}>{withPosition}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 12, opacity: 0.8 }}>总投入</div>
+            <div style={{ fontSize: 22, fontWeight: 700 }}>¥{totalInvested.toLocaleString()}</div>
+          </div>
+        </div>
+      )}
+
+      {/* 消息提示 */}
+      {message.text && (
+        <div style={{
+          padding: "10px 16px", borderRadius: 8, marginBottom: 12,
+          background: message.type === "success" ? "#d4edda" : "#f8d7da",
+          color: message.type === "success" ? "#155724" : "#721c24",
+          fontSize: 14,
+        }}>{message.text}</div>
+      )}
+
+      {/* 添加/编辑表单 — 东方财富风格横条 */}
+      <form onSubmit={addOrUpdate} style={{
+        background: colors.card, border: `1px solid ${colors.border}`,
+        borderRadius: 8, padding: "12px 16px", marginBottom: 16,
+        display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center",
+      }}>
+        <input
+          placeholder="代码" value={code} onChange={e => setCode(e.target.value)}
+          style={{ width: 90, padding: "6px 10px", border: `1px solid ${colors.border}`, borderRadius: 4, fontSize: 13, outline: "none" }}
+        />
+        <input
+          placeholder="名称" value={name} onChange={e => setName(e.target.value)}
+          style={{ width: 100, padding: "6px 10px", border: `1px solid ${colors.border}`, borderRadius: 4, fontSize: 13, outline: "none" }}
+        />
+        <input
+          placeholder="持仓股数" value={shares} onChange={e => setShares(e.target.value)} type="number" step="any"
+          style={{ width: 100, padding: "6px 10px", border: `1px solid ${colors.border}`, borderRadius: 4, fontSize: 13, outline: "none" }}
+        />
+        <input
+          placeholder="成本价" value={costPrice} onChange={e => setCostPrice(e.target.value)} type="number" step="0.01"
+          style={{ width: 100, padding: "6px 10px", border: `1px solid ${colors.border}`, borderRadius: 4, fontSize: 13, outline: "none" }}
+        />
+        <input
+          placeholder="关注原因(可选)" value={reason} onChange={e => setReason(e.target.value)}
+          style={{ flex: 1, minWidth: 120, padding: "6px 10px", border: `1px solid ${colors.border}`, borderRadius: 4, fontSize: 13, outline: "none" }}
+        />
+        <button type="submit" style={{
+          padding: "6px 20px", background: "#e74c3c", color: "#fff", border: "none",
+          borderRadius: 4, fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+        }}>
+          {editing ? "更新" : "添加"}
+        </button>
+        {editing && (
+          <button type="button" onClick={resetForm} style={{
+            padding: "6px 12px", background: colors.sub, color: "#fff", border: "none",
+            borderRadius: 4, fontSize: 13, cursor: "pointer",
+          }}>
+            取消
           </button>
-        </form>
-        {error && <p className="mt-3 text-red-500 text-sm">{error}</p>}
-        {success && <p className="mt-3 text-green-600 text-sm">{success}</p>}
-      </section>
-
-      {/* 股票列表 */}
-      <section>
-        <h2 className="text-2xl font-semibold text-[#1d1d1f] mb-4">
-          我的跟踪列表 {stocks.length > 0 && <span className="text-[#6e6e73] text-lg">（{stocks.length} 只）</span>}
-        </h2>
-
-        {loading ? (
-          <div className="text-center py-12 text-[#6e6e73]">加载中...</div>
-        ) : stocks.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-[#6e6e73] text-lg mb-2">还没有添加任何自选股</p>
-            <p className="text-[#6e6e73] text-sm">在上方输入股票代码和名称开始你的投资之旅</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {stocks.map((stock) => (
-              <div
-                key={stock.code}
-                className="bg-white rounded-2xl shadow-sm hover:shadow-md transition-all border border-[#d2d2d7] p-5 flex items-center justify-between"
-              >
-                <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-1">
-                    <span className="text-lg font-semibold text-[#1d1d1f]">{stock.name}</span>
-                    <span className="text-sm text-[#6e6e73] bg-[#f5f5f7] px-2 py-0.5 rounded">
-                      {stock.code}
-                    </span>
-                    {stock.price && (
-                      <span className="text-sm font-medium text-[#1d1d1f]">
-                        ¥{stock.price.toFixed(2)}
-                      </span>
-                    )}
-                    {stock.changePercent !== undefined && (
-                      <span className={`text-sm font-medium ${getChangeColor(stock.changePercent)}`}>
-                        {stock.changePercent > 0 ? "+" : ""}
-                        {stock.changePercent.toFixed(2)}%
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-4 text-xs text-[#6e6e73]">
-                    <span>添加于 {formatDate(stock.addedAt)}</span>
-                    {stock.reason && <span>📌 {stock.reason}</span>}
-                  </div>
-                </div>
-                <button
-                  onClick={() => removeStock(stock.code)}
-                  className="ml-4 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                >
-                  移除
-                </button>
-              </div>
-            ))}
-          </div>
         )}
-      </section>
+      </form>
 
-      {/* 使用说明 */}
-      <section className="text-center text-sm text-[#6e6e73] border-t border-[#d2d2d7] pt-6">
-        <p>数据保存在本地，仅你可见。添加你长期关注的股票，随时跟踪分析。</p>
-      </section>
+      {/* 表格 — 东方财富风格 */}
+      {loading ? (
+        <div style={{ textAlign: "center", padding: 60, color: colors.sub }}>加载中...</div>
+      ) : data.watchlist.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 60, color: colors.sub }}>
+          <p style={{ fontSize: 16, marginBottom: 8 }}>还没有任何股票</p>
+          <p style={{ fontSize: 13 }}>在上方输入代码和名称开始跟踪</p>
+        </div>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, background: colors.card }}>
+            <thead>
+              <tr style={{ background: "#f0f0f0", borderBottom: `2px solid ${colors.border}` }}>
+                <th style={thStyle}>代码</th>
+                <th style={thStyle}>名称</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>持仓(股)</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>成本价</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>投入金额</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>最新价</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>涨跌幅</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>盈亏</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>盈亏率</th>
+                <th style={thStyle}>关注原因</th>
+                <th style={{ ...thStyle, textAlign: "center", width: 100 }}>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.watchlist.map((item) => {
+                // 如果是持仓股，最新价用成本价 ± 随机模拟（TODO: 接入真实行情）
+                const hasPosition = item.shares > 0;
+                // 模拟行情数据（后续接入真实API）
+                const mockChangePct = (Math.random() - 0.5) * 8;
+                const mockPrice = item.costPrice > 0
+                  ? item.costPrice * (1 + mockChangePct / 100)
+                  : 0;
+                const mockChange = mockPrice - item.costPrice;
+                const mockChangeRate = item.costPrice > 0 ? mockChange / item.costPrice * 100 : 0;
+                const profitLoss = hasPosition ? mockChange * item.shares : 0;
+
+                const isUp = mockChangePct > 0;
+                const isFlat = Math.abs(mockChangePct) < 0.01;
+                const priceColor = hasPosition ? (isUp ? colors.rise : isFlat ? colors.flat : colors.fall) : colors.flat;
+
+                return (
+                  <tr key={item.code} style={{ borderBottom: `1px solid ${colors.border}`, background: hasPosition ? "#fff" : "#fafafa" }}>
+                    <td style={tdStyle}>
+                      <span style={{ fontFamily: "monospace", fontSize: 12, color: colors.sub }}>{item.code}</span>
+                    </td>
+                    <td style={{ ...tdStyle, fontWeight: 600, color: colors.text }}>{item.name}</td>
+                    <td style={{ ...tdStyle, textAlign: "right" }}>
+                      {hasPosition ? <span style={{ fontWeight: 600, color: colors.text }}>{item.shares}</span> : <span style={{ color: "#bbb" }}>-</span>}
+                    </td>
+                    <td style={{ ...tdStyle, textAlign: "right" }}>
+                      {item.costPrice > 0 ? `¥${fmt(item.costPrice)}` : <span style={{ color: "#bbb" }}>-</span>}
+                    </td>
+                    <td style={{ ...tdStyle, textAlign: "right" }}>
+                      {hasPosition ? `¥${(item.shares * item.costPrice).toLocaleString()}` : <span style={{ color: "#bbb" }}>-</span>}
+                    </td>
+                    {/* 最新价 — 模拟 */}
+                    <td style={{ ...tdStyle, textAlign: "right", color: priceColor, fontWeight: 600 }}>
+                      {item.costPrice > 0 ? `¥${fmt(mockPrice)}` : <span style={{ color: "#bbb" }}>-</span>}
+                    </td>
+                    {/* 涨跌幅 */}
+                    <td style={{ ...tdStyle, textAlign: "right", color: priceColor, fontWeight: 600 }}>
+                      {item.costPrice > 0 ? `${isUp ? "+" : ""}${mockChangePct.toFixed(2)}%` : <span style={{ color: "#bbb" }}>-</span>}
+                    </td>
+                    {/* 盈亏 */}
+                    <td style={{ ...tdStyle, textAlign: "right", color: profitLoss > 0 ? colors.rise : profitLoss < 0 ? colors.fall : colors.flat, fontWeight: 600 }}>
+                      {hasPosition ? `${profitLoss > 0 ? "+" : ""}¥${profitLoss.toFixed(2)}` : <span style={{ color: "#bbb" }}>-</span>}
+                    </td>
+                    {/* 盈亏率 */}
+                    <td style={{ ...tdStyle, textAlign: "right", color: mockChangeRate > 0 ? colors.rise : mockChangeRate < 0 ? colors.fall : colors.flat }}>
+                      {hasPosition ? `${mockChangeRate > 0 ? "+" : ""}${mockChangeRate.toFixed(2)}%` : <span style={{ color: "#bbb" }}>-</span>}
+                    </td>
+                    <td style={{ ...tdStyle, color: colors.sub, fontSize: 12, maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {item.reason || "-"}
+                    </td>
+                    <td style={{ ...tdStyle, textAlign: "center" }}>
+                      <div style={{ display: "flex", gap: 4, justifyContent: "center" }}>
+                        <button onClick={() => editStock(item)} style={btnStyle}>编辑</button>
+                        <button onClick={() => removeStock(item.code, item.name)} style={{ ...btnStyle, color: "#e74c3c" }}>删除</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* 底部说明 */}
+      <div style={{ marginTop: 20, fontSize: 12, color: colors.sub, textAlign: "center", lineHeight: 1.8 }}>
+        <p>💡 最新价、涨跌幅、盈亏为模拟数据，后续将接入真实行情API</p>
+        <p>输入持仓股数和成本价即可跟踪你的模拟持仓</p>
+      </div>
     </div>
   );
 }
+
+const thStyle: React.CSSProperties = {
+  padding: "10px 8px",
+  textAlign: "left",
+  fontSize: 12,
+  fontWeight: 600,
+  color: "#555",
+  whiteSpace: "nowrap",
+  borderBottom: `2px solid #e0e0e0`,
+};
+
+const tdStyle: React.CSSProperties = {
+  padding: "10px 8px",
+  fontSize: 13,
+  whiteSpace: "nowrap",
+};
+
+const btnStyle: React.CSSProperties = {
+  padding: "3px 10px",
+  fontSize: 12,
+  border: "1px solid #ddd",
+  borderRadius: 3,
+  background: "#fff",
+  cursor: "pointer",
+  color: "#555",
+};
