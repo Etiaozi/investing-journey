@@ -1,108 +1,97 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// 调用妙想数据工具获取股票行情
-async function fetchQuotes(codes: string[]): Promise<Record<string, any>> {
+// 腾讯行情API: qt.gtimg.cn/q=sh688710,sz300394
+// 返回: v_sh688710="1~益诺思~688710~65.47~65.83~67.15~1497589~...";
+// 字段索引: 1=市场, 2=名称, 3=代码, 4=最新价, 5=昨收, 6=今开
+//           7=成交量(手), 8=..., 9=..., 10=...
+// 涨跌幅 = (最新价 - 昨收) / 昨收 * 100
+
+async function fetchRealQuotes(codes: string[]): Promise<Record<string, any>> {
   if (codes.length === 0) return {};
 
-  // 构建查询文本：把所有股票名拼一起
-  const query = codes.join(" ") + " 最新价 涨跌幅 今开 最高 最低 成交量 成交额 市盈率 总市值 所属行业 所属概念";
+  // 构建请求: sh=上交所60/68, sz=深交所00/30/00
+  const marketPrefix: Record<string, string> = {
+    "6": "sh", "68": "sh", "60": "sh",
+    "0": "sz", "3": "sz", "00": "sz", "30": "sz", "002": "sz", "003": "sz",
+    "4": "sz", "8": "sz",
+  };
+  const qs = codes.map(c => {
+    const prefix = c.startsWith("6") ? "sh" : "sz";
+    return `${prefix}${c}`;
+  }).join(",");
 
   try {
-    const { execSync } = await import("child_process");
-    const projectRoot = process.env.VERCEL
-      ? "/tmp"
-      : "/Users/etiaozi/.openclaw/workspace/investing-journey";
-    const scriptPath = "/Users/etiaozi/.openclaw/workspace/skills/mx-data/mx_data.py";
+    const res = await fetch(`http://qt.gtimg.cn/q=${qs}`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    const text = await res.text();
 
-    // 只在本地运行，Vercel上返回模拟数据
-    if (process.env.VERCEL) {
-      return generateMockData(codes);
-    }
+    const result: Record<string, any> = {};
+    const lines = text.split("\n").filter(l => l.trim());
 
-    const result = execSync(
-      `cd /Users/etiaozi/.openclaw/workspace/skills/mx-data && python3 ./mx_data.py "${query}" 2>&1`,
-      { timeout: 30000, maxBuffer: 10 * 1024 * 1024 }
-    );
+    for (const line of lines) {
+      // 提取引号内的内容
+      const match = line.match(/"(.+)"/);
+      if (!match) continue;
 
-    // 尝试从输出中解析
-    const output = result.toString();
-    return parseOutput(output, codes);
-  } catch (e) {
-    console.error("行情查询失败:", e);
-    return generateMockData(codes);
-  }
-}
+      const parts = match[1].split("~");
+      if (parts.length < 10) continue;
 
-function parseOutput(output: string, codes: string[]): Record<string, any> {
-  const result: Record<string, any> = {};
+      const code = parts[2]?.trim();
+      if (!code || !codes.includes(code)) continue;
 
-  // 从输出中提取每个股的数据
-  for (const code of codes) {
-    // 尝试匹配 "代码 | 名称 | 最新价 | 涨跌幅..."
-    const pattern = new RegExp(`${code}\\s+\\|[^|]+\\|\\s*([\\d.]+)\\s*\\|\\s*([+-]?[\\d.]+%)`);
-    const match = output.match(pattern);
-    if (match) {
+      const name = parts[1];
+      const price = parseFloat(parts[3]) || 0;
+      const prevClose = parseFloat(parts[4]) || price;
+      const open = parseFloat(parts[5]) || 0;
+      const volumeHand = parseFloat(parts[6]) || 0; // 手
+      const changePct = prevClose > 0 ? ((price - prevClose) / prevClose * 100) : 0;
+      const high = parseFloat(parts[33]) || 0;
+      const low = parseFloat(parts[34]) || 0;
+      const turnoverYuan = parseFloat(parts[37]) || 0; // 成交额(元)
+
+      // 成交量转中文（手→万手/亿手）
+      const vol = volumeHand >= 10000
+        ? (volumeHand / 10000).toFixed(1) + "万手"
+        : volumeHand.toFixed(0) + "手";
+      const turn = turnoverYuan >= 100000000
+        ? (turnoverYuan / 100000000).toFixed(2) + "亿"
+        : turnoverYuan >= 10000
+          ? (turnoverYuan / 10000).toFixed(0) + "万"
+          : turnoverYuan.toFixed(0);
+
       result[code] = {
-        price: parseFloat(match[1]),
-        changePercent: parseFloat(match[2].replace("%", "")),
+        price: Math.round(price * 100) / 100,
+        changePercent: Math.round(changePct * 100) / 100,
+        high: Math.round(high * 100) / 100,
+        low: Math.round(low * 100) / 100,
+        open: Math.round(open * 100) / 100,
+        volume: vol,
+        turnover: turn,
+        // 腾讯行情不提供PE和市值，从其他数据源补充或留空
+        pe: "---",
+        marketCap: "---",
+        name,
       };
     }
-  }
 
-  // 补充默认值
-  for (const code of codes) {
-    if (!result[code]) {
-      result[code] = { price: 0, changePercent: 0 };
-    }
+    return result;
+  } catch (e) {
+    console.error("腾讯行情查询失败:", e);
+    return {};
   }
-
-  return result;
-}
-
-function generateMockData(codes: string[]): Record<string, any> {
-  const result: Record<string, any> = {};
-  const names: Record<string, string> = {
-    "688710": "益诺思", "600875": "东方电气", "600850": "电科数字",
-    "300394": "天孚通信", "603259": "药明康德", "603011": "合锻智能",
-    "603938": "三孚股份", "300115": "长盈精密", "002436": "兴森科技",
-    "002156": "通富微电", "002600": "领益智造", "688257": "慧谷新材",
-  };
-  const basePrices: Record<string, number> = {
-    "688710": 67.79, "600875": 38.28, "600850": 22.25,
-    "300394": 362.49, "603259": 102.03, "603011": 20.54,
-    "603938": 28.15, "300115": 38.77, "002436": 32.87,
-    "002156": 57.23, "002600": 17.03, "688257": 45.60,
-  };
-  for (const code of codes) {
-    const base = basePrices[code] || 50;
-    const pct = (Math.random() - 0.5) * 6;
-    result[code] = {
-      price: Math.round(base * (1 + pct / 100) * 100) / 100,
-      changePercent: Math.round(pct * 100) / 100,
-      high: Math.round(base * 1.03 * 100) / 100,
-      low: Math.round(base * 0.97 * 100) / 100,
-      volume: (Math.random() * 500 + 50).toFixed(0) + "万",
-      turnover: (Math.random() * 5 + 0.5).toFixed(2) + "亿",
-      pe: (Math.random() * 40 + 10).toFixed(1),
-      marketCap: "---",
-      industry: "---",
-      concepts: "---",
-    };
-  }
-  return result;
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const text = await request.text();
-    const body = JSON.parse(text);
+    const body = await request.json();
     const codes: string[] = body.codes || [];
 
     if (codes.length === 0) {
       return NextResponse.json({ quotes: {} });
     }
 
-    const quotes = await fetchQuotes(codes);
+    const quotes = await fetchRealQuotes(codes);
     return NextResponse.json({ quotes });
   } catch (e: any) {
     return NextResponse.json({ error: e.message, quotes: {} }, { status: 500 });
