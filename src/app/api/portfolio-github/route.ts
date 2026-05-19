@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// 使用GitHub仓库作为永久持久化存储
-const GITHUB_TOKEN = process.env.GH_TOKEN || "";
+const GITHUB_TOKEN = process.env.GH_TOKEN;
 const OWNER = "Etiaozi";
 const REPO = "investing-journey";
 const FILE_PATH = "data/portfolio.json";
@@ -30,28 +29,30 @@ function getDefaults(): PortfolioData {
   };
 }
 
-async function fetchFile(): Promise<{data: PortfolioData; sha?: string}> {
+// 读取：公开仓库可以无token
+async function readFile(): Promise<PortfolioData> {
   try {
+    const headers: Record<string,string> = { Accept: "application/vnd.github.v3+json" };
+    if (GITHUB_TOKEN) headers["Authorization"] = `Bearer ${GITHUB_TOKEN}`;
     const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${FILE_PATH}?ref=${BRANCH}`, {
-      headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: "application/vnd.github.v3+json" },
-      signal: AbortSignal.timeout(10000),
+      headers, signal: AbortSignal.timeout(10000),
     });
-    if (!res.ok) return { data: getDefaults() };
+    if (!res.ok) return getDefaults();
     const meta = await res.json();
     const content = Buffer.from(meta.content, "base64").toString("utf-8");
-    return { data: JSON.parse(content), sha: meta.sha };
-  } catch { return { data: getDefaults() }; }
+    return JSON.parse(content);
+  } catch { return getDefaults(); }
 }
 
-async function writeFile(data: PortfolioData, sha?: string): Promise<boolean> {
+// 写入需要token
+async function writeFile(data: PortfolioData, sha: string): Promise<boolean> {
+  if (!GITHUB_TOKEN) return false;
   try {
     const content = Buffer.from(JSON.stringify(data, null, 2)).toString("base64");
-    const body: any = { message: "update portfolio data", content, branch: BRANCH };
-    if (sha) body.sha = sha;
     const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${FILE_PATH}`, {
       method: "PUT",
       headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, "Content-Type": "application/json", Accept: "application/vnd.github.v3+json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ message: "update portfolio data", content, sha, branch: BRANCH }),
       signal: AbortSignal.timeout(15000),
     });
     return res.ok;
@@ -59,12 +60,8 @@ async function writeFile(data: PortfolioData, sha?: string): Promise<boolean> {
 }
 
 export async function GET() {
-  try {
-    const { data } = await fetchFile();
-    return NextResponse.json(data);
-  } catch {
-    return NextResponse.json(getDefaults());
-  }
+  const data = await readFile();
+  return NextResponse.json(data);
 }
 
 export async function POST(request: NextRequest) {
@@ -72,19 +69,16 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { code, name, shares, costPrice, reason } = body;
     if (!code || !name) return NextResponse.json({ error: "代码和名称不能为空" }, { status: 400 });
+    if (!GITHUB_TOKEN) return NextResponse.json({ error: "GH_TOKEN未配置，写入失败" }, { status: 500 });
 
-    const { data, sha } = await fetchFile();
+    const { data, sha, ok } = await readWithSha();
+    if (!ok || !sha) return NextResponse.json({ error: "无法读取数据文件" }, { status: 500 });
     if (data.watchlist.find((s) => s.code === code.toUpperCase())) {
       return NextResponse.json({ error: `${name} 已在列表中` }, { status: 409 });
     }
-
-    const newItem: Holding = {
-      code: code.toUpperCase(), name, shares: shares || 0, costPrice: costPrice || 0,
-      reason: reason || undefined, addedAt: new Date().toISOString(),
-    };
+    const newItem: Holding = { code: code.toUpperCase(), name, shares: shares || 0, costPrice: costPrice || 0, reason: reason || undefined, addedAt: new Date().toISOString() };
     data.watchlist.push(newItem);
     await writeFile(data, sha);
-
     return NextResponse.json({ success: true, item: newItem });
   } catch (e: any) { return NextResponse.json({ error: "错误: " + e.message }, { status: 500 }); }
 }
@@ -94,18 +88,17 @@ export async function PUT(request: NextRequest) {
     const body = await request.json();
     const { code, shares, costPrice, reason, name } = body;
     if (!code) return NextResponse.json({ error: "请提供股票代码" }, { status: 400 });
+    if (!GITHUB_TOKEN) return NextResponse.json({ error: "GH_TOKEN未配置" }, { status: 500 });
 
-    const { data, sha } = await fetchFile();
-    if (!sha) return NextResponse.json({ error: "无法读取数据" }, { status: 500 });
+    const { data, sha, ok } = await readWithSha();
+    if (!ok || !sha) return NextResponse.json({ error: "无法读取数据文件" }, { status: 500 });
 
     const idx = data.watchlist.findIndex((s) => s.code === code.toUpperCase());
     if (idx === -1) return NextResponse.json({ error: "未找到该股票" }, { status: 404 });
-
     if (shares !== undefined) data.watchlist[idx].shares = shares;
     if (costPrice !== undefined) data.watchlist[idx].costPrice = costPrice;
     if (reason !== undefined) data.watchlist[idx].reason = reason;
     if (name !== undefined) data.watchlist[idx].name = name;
-
     await writeFile(data, sha);
     return NextResponse.json({ success: true, item: data.watchlist[idx] });
   } catch (e: any) { return NextResponse.json({ error: "错误: " + e.message }, { status: 500 }); }
@@ -116,15 +109,30 @@ export async function DELETE(request: NextRequest) {
     const body = await request.json();
     const { code } = body;
     if (!code) return NextResponse.json({ error: "请提供股票代码" }, { status: 400 });
+    if (!GITHUB_TOKEN) return NextResponse.json({ error: "GH_TOKEN未配置" }, { status: 500 });
 
-    const { data, sha } = await fetchFile();
-    if (!sha) return NextResponse.json({ error: "无法读取数据" }, { status: 500 });
+    const { data, sha, ok } = await readWithSha();
+    if (!ok || !sha) return NextResponse.json({ error: "无法读取数据文件" }, { status: 500 });
 
     const initial = data.watchlist.length;
     data.watchlist = data.watchlist.filter((s) => s.code !== code.toUpperCase());
     if (data.watchlist.length === initial) return NextResponse.json({ error: "未找到该股票" }, { status: 404 });
-
     await writeFile(data, sha);
     return NextResponse.json({ success: true });
   } catch (e: any) { return NextResponse.json({ error: "错误: " + e.message }, { status: 500 }); }
+}
+
+// 读取 + SHA（写入需要）
+async function readWithSha(): Promise<{data: PortfolioData; sha?: string; ok: boolean}> {
+  try {
+    const headers: Record<string,string> = { Accept: "application/vnd.github.v3+json" };
+    if (GITHUB_TOKEN) headers["Authorization"] = `Bearer ${GITHUB_TOKEN}`;
+    const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${FILE_PATH}?ref=${BRANCH}`, {
+      headers, signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return { data: getDefaults(), ok: false };
+    const meta = await res.json();
+    const content = Buffer.from(meta.content, "base64").toString("utf-8");
+    return { data: JSON.parse(content), sha: meta.sha, ok: true };
+  } catch { return { data: getDefaults(), ok: false }; }
 }
