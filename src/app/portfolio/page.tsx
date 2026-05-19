@@ -5,10 +5,13 @@ import { useState, useEffect, useCallback, Fragment } from "react";
 interface Holding { code: string; name: string; shares: number; costPrice: number; reason?: string; addedAt: string; }
 interface Quote { price: number; changePercent: number; high?: number; low?: number; open?: number; volume?: string; turnover?: string; turnoverRate?: string; pe?: string; marketCap?: string; }
 interface KLine { date: string; open: number; close: number; high: number; low: number; volume: number; volumeYuan: number; }
-interface AnalysisData { industry: string; concepts: string; analysis: string; }
 
 const c = { rise: "#e74c3c", fall: "#27ae60", flat: "#333", border: "#e0e0e0", text: "#1a1a1a", sub: "#888" };
 const LS_KEY = "investing_holdings_v1";
+const LS_ANALYSIS = "investing_analysis_v1";
+
+// 分析数据：concepts 可以是字符串数组（API返回）或 · 分隔字符串（硬编码预设）
+interface AnData { industry: string; concepts: string[] | string; analysis: string; }
 
 function loadLocalHoldings(): Record<string, {shares:number;costPrice:number}> {
   try{ const r=localStorage.getItem(LS_KEY); return r?JSON.parse(r):{}; }catch{ return {}; }
@@ -24,7 +27,30 @@ function mergeHoldings(list: Holding[], local: Record<string,{shares:number;cost
   });
 }
 
-const analysisData: Record<string, AnalysisData> = {
+// AI分析持久化
+function loadAnalysis(): Record<string, AnData> {
+  try{ const r=localStorage.getItem(LS_ANALYSIS); return r?JSON.parse(r):{}; }catch{ return {}; }
+}
+function saveAnalysisItem(code: string, data: AnData) {
+  const all = loadAnalysis();
+  all[code.toUpperCase()] = data;
+  try{ localStorage.setItem(LS_ANALYSIS, JSON.stringify(all)); }catch{}
+}
+
+// 合并获取分析数据：先看预设，再看localStorage，最后返回undefined
+function getAnalysis(code: string): AnData | undefined {
+  const local = loadAnalysis();
+  const found = local[code.toUpperCase()];
+  if (found) return found;
+  const preset = analysisData[code];
+  if (preset) {
+    const c = typeof preset.concepts === 'string' ? (preset.concepts as string).split(' · ').filter(Boolean) : preset.concepts;
+    return { ...preset, concepts: c };
+  }
+  return undefined;
+}
+
+const analysisData: Record<string, AnData> = {
   "688710": { industry: "CRO/生物医药", concepts: "CAR-T细胞疗法 · CRO · 创新药 · 央国企改革 · 沪股通", analysis: "国药集团旗下CRO企业。2026Q1净利润同比+121%，毛利率回升至30.76%，营收拐点确认。机构持股66%，筹码集中度高。中线看2026全年扭亏预期，若Q2延续增长趋势目标70-75元。风险：2027年9月有4852万股解禁。" },
   "600875": { industry: "能源装备", concepts: "核能核电 · 氢能源 · 抽水蓄能 · 储能 · 风能 · 央国企改革 · 一带一路", analysis: "全球最大发电设备供应商，央企控股51.37%。2026Q1净利+37.4%，V型反转确认。但年内从14.6涨到40元（+173%），PE 32倍偏高。H股01072 PE仅26.6倍更具性价比。核电+抽水蓄能政策红利期，中长期逻辑清晰。短期建议等30-33元区间分批建仓。" },
   "600850": { industry: "信创/数字政务", concepts: "信创 · 央企改革 · 数字政府 · 军工", analysis: "电科数字（原华东电脑），中国电科旗下数字城市龙头。今日放量拉升属超跌反弹（今年跌31%）。PE 50倍估值偏贵。支撑位20.8压力位22.32。若放量突破22.5可看25，否则等回踩21。央企改革预期是中期催化剂。" },
@@ -113,6 +139,10 @@ export default function PortfolioPage() {
       if (!info.found) { toast(`未找到代码 ${code}`, "error"); setAdding(false); return; }
       const stockName = info.name || `个股${code}`;
       const reason = info.reason || (info.industry ? `${info.industry} · ${(info.concepts || []).slice(0, 3).join(" ")}` : "");
+      // 保存AI分析到localStorage
+      if (info.analysis) {
+        saveAnalysisItem(code, { industry: info.industry || '未知', concepts: info.concepts || [], analysis: info.analysis });
+      }
       const addRes = await fetch("/api/portfolio-github", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code, name: stockName, shares: parseFloat(sharesInput) || 0, costPrice: parseFloat(costPriceInput) || 0, reason }) });
       const addData = await addRes.json();
       if (!addRes.ok) { toast(addData.error, "error"); setAdding(false); return; }
@@ -245,7 +275,7 @@ export default function PortfolioPage() {
               {data.watchlist.map((item) => {
                 const isOpen = selCode === item.code;
                 const q = quotes[item.code];
-                const analysis = analysisData[item.code];
+                const analysis = getAnalysis(item.code);
                 const klineData = klines[item.code];
                 const hasPos = item.shares > 0;
                 const curPrice = q?.price || (item.costPrice > 0 ? item.costPrice : 0);
@@ -298,10 +328,13 @@ export default function PortfolioPage() {
 }
 
 function StockDetail({ name, code, quote, analysis, klines }: {
-  name: string; code: string; quote?: Quote; analysis: AnalysisData; klines?: KLine[];
+  name: string; code: string; quote?: Quote; analysis: AnData; klines?: KLine[];
 }) {
   const pct = quote?.changePercent ?? 0;
   const barColor = pct > 0 ? c.rise : pct < 0 ? c.fall : "#999";
+  const conceptsList: string[] = typeof analysis.concepts === 'string' 
+    ? (analysis.concepts as string).split(' · ').filter(Boolean) 
+    : (analysis.concepts as string[]);
 
   return (
     <div style={{ padding: "16px 24px", background: "#fafafa", borderTop: `2px solid ${barColor}` }}>
@@ -332,7 +365,7 @@ function StockDetail({ name, code, quote, analysis, klines }: {
         <span style={{ color: c.sub, fontSize: 11, marginRight: 8 }}>行业</span>
         <span style={{ fontSize: 13 }}>{analysis.industry}</span>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
-          {analysis.concepts.split(" · ").map((t, i) => (
+          {conceptsList.map((t, i) => (
             <span key={i} style={{ padding: "2px 8px", background: "#e8f0fe", borderRadius: 10, fontSize: 11, color: "#1a73e8" }}>{t}</span>
           ))}
         </div>
