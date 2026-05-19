@@ -36,8 +36,7 @@ yarn-error.log*
 # vercel
 .vercel
 
-# portfolio data (user-generated)
-/data
+
 
 # typescript
 *.tsbuildinfo
