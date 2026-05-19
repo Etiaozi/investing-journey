@@ -2,31 +2,10 @@
 
 import { useState, useEffect, useCallback, Fragment } from "react";
 
-interface Holding {
-  code: string;
-  name: string;
-  shares: number;
-  costPrice: number;
-  reason?: string;
-  addedAt: string;
-}
-
-interface Quote {
-  price: number;
-  changePercent: number;
-  high?: number;
-  low?: number;
-  volume?: string;
-  turnover?: string;
-  pe?: string;
-  marketCap?: string;
-}
-
-interface AnalysisData {
-  industry: string;
-  concepts: string;
-  analysis: string;
-}
+interface Holding { code: string; name: string; shares: number; costPrice: number; reason?: string; addedAt: string; }
+interface Quote { price: number; changePercent: number; high?: number; low?: number; volume?: string; turnover?: string; pe?: string; marketCap?: string; }
+interface KLine { date: string; open: number; close: number; high: number; low: number; volume: number; volumeYuan: number; }
+interface AnalysisData { industry: string; concepts: string; analysis: string; }
 
 const c = { rise: "#e74c3c", fall: "#27ae60", flat: "#333", border: "#e0e0e0", text: "#1a1a1a", sub: "#888" };
 
@@ -48,17 +27,15 @@ const analysisData: Record<string, AnalysisData> = {
 export default function PortfolioPage() {
   const [data, setData] = useState<{ watchlist: Holding[] }>({ watchlist: [] });
   const [quotes, setQuotes] = useState<Record<string, Quote>>({});
+  const [klines, setKlines] = useState<Record<string, KLine[]>>({});
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [msg, setMsg] = useState({ text: "", type: "" as "success" | "error" });
   const [selCode, setSelCode] = useState<string | null>(null);
-
-  // 添加股票表单（简化：只需代码）
   const [codeInput, setCodeInput] = useState("");
   const [sharesInput, setSharesInput] = useState("");
   const [costPriceInput, setCostPriceInput] = useState("");
 
-  // 编辑
   const [editing, setEditing] = useState<string | null>(null);
   const [editCode, setEditCode] = useState("");
   const [editName, setEditName] = useState("");
@@ -66,7 +43,7 @@ export default function PortfolioPage() {
   const [editCost, setEditCost] = useState("");
   const [editReason, setEditReason] = useState("");
 
-  const fetchAll = useCallback(async () => {
+  const fetchAll = useCallback(async (fetchKline: boolean = false) => {
     try {
       const r = await fetch("/api/portfolio");
       const d = await r.json();
@@ -76,10 +53,12 @@ export default function PortfolioPage() {
         if (codes.length > 0) {
           try {
             const qr = await fetch("/api/quotes", {
-              method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ codes }),
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ codes, kline: fetchKline }),
             });
             const qd = await qr.json();
             if (qd.quotes) setQuotes(qd.quotes);
+            if (qd.klines) setKlines((prev: Record<string, KLine[]>) => ({ ...prev, ...qd.klines }));
           } catch { /* ignore */ }
         }
       }
@@ -89,7 +68,7 @@ export default function PortfolioPage() {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  // auto-refresh every 60s
+  // 自动刷新（不含K线，避免频繁拉取）
   useEffect(() => {
     const timer = setInterval(() => {
       if (data.watchlist.length > 0) {
@@ -106,49 +85,24 @@ export default function PortfolioPage() {
     setTimeout(() => setMsg({ text: "", type: "" as any }), 3000);
   };
 
-  // 主要功能：输入代码 → 自动查询 → 添加到自选
   const addByCode = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const code = codeInput.trim().toUpperCase();
     if (!code) { toast("请输入股票代码", "error"); return; }
-
     setAdding(true);
     try {
-      // 1. 自动查询股票信息
-      const infoRes = await fetch("/api/stock-info", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }),
-      });
+      const infoRes = await fetch("/api/stock-info", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) });
       const info = await infoRes.json();
-
-      if (!info.found) {
-        toast(`未找到代码 ${code} 的信息`, "error");
-        setAdding(false);
-        return;
-      }
-
+      if (!info.found) { toast(`未找到代码 ${code}`, "error"); setAdding(false); return; }
       const stockName = info.name || `个股${code}`;
       const reason = info.reason || (info.industry ? `${info.industry} · ${(info.concepts || []).slice(0, 3).join(" ")}` : "");
-
-      // 2. 直接添加
-      const addRes = await fetch("/api/portfolio", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          code, name: stockName,
-          shares: parseFloat(sharesInput) || 0,
-          costPrice: parseFloat(costPriceInput) || 0,
-          reason,
-        }),
-      });
+      const addRes = await fetch("/api/portfolio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code, name: stockName, shares: parseFloat(sharesInput) || 0, costPrice: parseFloat(costPriceInput) || 0, reason }) });
       const addData = await addRes.json();
       if (!addRes.ok) { toast(addData.error, "error"); setAdding(false); return; }
-
-      // 3. 如果分析数据不在本地，自动生成并保存到分析字典
-      // (前端只需更新分析数据)
-
       toast(`✅ 已添加 ${stockName}（${code}）`, "success");
       setCodeInput(""); setSharesInput(""); setCostPriceInput("");
       fetchAll();
-    } catch { toast("添加失败，请检查网络", "error"); }
+    } catch { toast("添加失败", "error"); }
     finally { setAdding(false); }
   };
 
@@ -168,10 +122,7 @@ export default function PortfolioPage() {
 
   const saveEdit = async () => {
     try {
-      const r = await fetch("/api/portfolio", {
-        method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: editCode, name: editName, shares: parseFloat(editShares) || 0, costPrice: parseFloat(editCost) || 0, reason: editReason }),
-      });
+      const r = await fetch("/api/portfolio", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: editCode, name: editName, shares: parseFloat(editShares) || 0, costPrice: parseFloat(editCost) || 0, reason: editReason }) });
       const d = await r.json();
       if (!r.ok) { toast(d.error, "error"); return; }
       toast(`✅ 已更新 ${editName}`, "success");
@@ -179,28 +130,33 @@ export default function PortfolioPage() {
     } catch { toast("网络错误", "error"); }
   };
 
-  const cancelEdit = () => { setEditing(null); };
+  const cancelEdit = () => setEditing(null);
+
+  const handleRowClick = (code: string) => {
+    if (selCode === code) { setSelCode(null); return; }
+    setSelCode(code);
+    // 展开时拉K线
+    if (!klines[code]) {
+      fetch("/api/quotes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ codes: [code], kline: true }) })
+        .then(r => r.json()).then(d => { if (d.klines) setKlines((prev: Record<string, KLine[]>) => ({ ...prev, ...d.klines })); }).catch(() => {});
+    }
+  };
 
   const totalInvested = data.watchlist.reduce((s, h) => s + h.shares * h.costPrice, 0);
   const withPos = data.watchlist.filter(h => h.shares > 0).length;
-
   const priceColor = (pct: number) => pct > 0 ? c.rise : pct < 0 ? c.fall : c.flat;
   const fmt = (n: number) => n.toFixed(2);
 
   return (
     <div style={{ maxWidth: 1400, margin: "0 auto", padding: "0 16px 40px" }}>
-      {/* 头部 */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <h1 style={{ fontSize: 24, fontWeight: 700, color: c.text }}>自选奔富 🚀</h1>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
           <span style={{ fontSize: 13, color: c.sub }}>{data.watchlist.length} 只 · {withPos} 只有持仓</span>
-          <button onClick={fetchAll} style={{ padding: "4px 12px", fontSize: 12, border: `1px solid ${c.border}`, borderRadius: 4, background: "#fff", cursor: "pointer", color: c.text }}>
-            🔄 刷新行情
-          </button>
+          <button onClick={() => fetchAll()} style={{ padding: "4px 12px", fontSize: 12, border: `1px solid ${c.border}`, borderRadius: 4, background: "#fff", cursor: "pointer", color: c.text }}>🔄 刷新行情</button>
         </div>
       </div>
 
-      {/* 持仓汇总 */}
       {withPos > 0 && (
         <div style={{ background: "linear-gradient(135deg, #667eea, #764ba2)", borderRadius: 12, padding: "16px 20px", marginBottom: 16, color: "#fff", display: "flex", gap: 32, flexWrap: "wrap" }}>
           <div><div style={{ fontSize: 12, opacity: .8 }}>持仓只数</div><div style={{ fontSize: 22, fontWeight: 700 }}>{withPos}</div></div>
@@ -208,46 +164,22 @@ export default function PortfolioPage() {
         </div>
       )}
 
-      {/* Toast消息 */}
       {msg.text && (
         <div style={{ padding: "10px 16px", borderRadius: 8, marginBottom: 12, background: msg.type === "success" ? "#d4edda" : "#f8d7da", color: msg.type === "success" ? "#155724" : "#721c24", fontSize: 14 }}>{msg.text}</div>
       )}
 
-      {/* ===== 添加股票表单（只需填代码） ===== */}
-      <form onSubmit={addByCode} style={{
-        background: "linear-gradient(135deg, #f8f9ff, #fff)", border: `1px solid ${c.border}`, borderRadius: 8,
-        padding: "14px 16px", marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center",
-      }}>
-        <div style={{ fontSize: 12, color: c.sub, marginRight: 4, whiteSpace: "nowrap" }}>
-          🔍 添加自选：
-        </div>
-        <input placeholder="输入代码（如 000333）" value={codeInput} onChange={e => setCodeInput(e.target.value)}
-          style={{ width: 140, ...inpBase }} disabled={adding} />
-        <input placeholder="持仓(股)" value={sharesInput} onChange={e => setSharesInput(e.target.value)}
-          type="number" step="any" style={{ width: 90, ...inpBase }} />
-        <input placeholder="成本价" value={costPriceInput} onChange={e => setCostPriceInput(e.target.value)}
-          type="number" step="0.01" style={{ width: 90, ...inpBase }} />
-        <button type="submit" disabled={adding} style={{
-          padding: "6px 24px", background: "#667eea", color: "#fff", border: "none",
-          borderRadius: 4, fontSize: 13, fontWeight: 600, cursor: adding ? "wait" : "pointer", opacity: adding ? 0.7 : 1,
-        }}>
-          {adding ? "查询中..." : "添  加"}
-        </button>
-        <span style={{ fontSize: 11, color: "#aaa", marginLeft: 4 }}>
-          自动查询名称/行业分析，支持添加时填持仓
-        </span>
+      <form onSubmit={addByCode} style={{ background: "linear-gradient(135deg, #f8f9ff, #fff)", border: `1px solid ${c.border}`, borderRadius: 8, padding: "14px 16px", marginBottom: 16, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+        <div style={{ fontSize: 12, color: c.sub, marginRight: 4, whiteSpace: "nowrap" }}>🔍 添加自选：</div>
+        <input placeholder="输入代码（如 000333）" value={codeInput} onChange={e => setCodeInput(e.target.value)} style={{ width: 140, ...inpBase }} disabled={adding} />
+        <input placeholder="持仓(股)" value={sharesInput} onChange={e => setSharesInput(e.target.value)} type="number" step="any" style={{ width: 90, ...inpBase }} />
+        <input placeholder="成本价" value={costPriceInput} onChange={e => setCostPriceInput(e.target.value)} type="number" step="0.01" style={{ width: 90, ...inpBase }} />
+        <button type="submit" disabled={adding} style={{ padding: "6px 24px", background: "#667eea", color: "#fff", border: "none", borderRadius: 4, fontSize: 13, fontWeight: 600, cursor: adding ? "wait" : "pointer", opacity: adding ? 0.7 : 1 }}>{adding ? "查询中..." : "添  加"}</button>
+        <span style={{ fontSize: 11, color: "#aaa", marginLeft: 4 }}>自动查名称/分析，支持持仓</span>
       </form>
 
-      {/* ===== 编辑弹窗 ===== */}
       {editing && (
-        <div style={{
-          position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)",
-          display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100,
-        }} onClick={cancelEdit}>
-          <div style={{
-            background: "#fff", borderRadius: 12, padding: "24px", width: 380, maxWidth: "90vw",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.15)",
-          }} onClick={e => e.stopPropagation()}>
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }} onClick={cancelEdit}>
+          <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 380, maxWidth: "90vw", boxShadow: "0 8px 32px rgba(0,0,0,0.15)" }} onClick={e => e.stopPropagation()}>
             <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16, color: c.text }}>编辑 {editCode}</h3>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <input placeholder="名称" value={editName} onChange={e => setEditName(e.target.value)} style={{ ...inpBase, padding: "8px 10px" }} />
@@ -255,8 +187,7 @@ export default function PortfolioPage() {
                 <input placeholder="持仓(股)" value={editShares} onChange={e => setEditShares(e.target.value)} type="number" step="any" style={{ flex: 1, ...inpBase, padding: "8px 10px" }} />
                 <input placeholder="成本价" value={editCost} onChange={e => setEditCost(e.target.value)} type="number" step="0.01" style={{ flex: 1, ...inpBase, padding: "8px 10px" }} />
               </div>
-              <textarea placeholder="关注原因" value={editReason} onChange={e => setEditReason(e.target.value)}
-                rows={2} style={{ ...inpBase, padding: "8px 10px", resize: "vertical", fontFamily: "inherit" }} />
+              <textarea placeholder="关注原因" value={editReason} onChange={e => setEditReason(e.target.value)} rows={2} style={{ ...inpBase, padding: "8px 10px", resize: "vertical", fontFamily: "inherit" }} />
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
                 <button onClick={cancelEdit} style={{ padding: "8px 20px", border: `1px solid ${c.border}`, borderRadius: 6, background: "#fff", cursor: "pointer", fontSize: 13 }}>取消</button>
                 <button onClick={saveEdit} style={{ padding: "8px 20px", background: c.rise, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>保存</button>
@@ -266,14 +197,10 @@ export default function PortfolioPage() {
         </div>
       )}
 
-      {/* ===== 表格 ===== */}
       {loading ? (
         <div style={{ textAlign: "center", padding: 60, color: c.sub }}>加载中...</div>
       ) : data.watchlist.length === 0 ? (
-        <div style={{ textAlign: "center", padding: 60, color: c.sub }}>
-          <p style={{ fontSize: 16, marginBottom: 8 }}>还没有任何自选股</p>
-          <p style={{ fontSize: 13 }}>在输入框输入股票代码，点击"添加"即可</p>
-        </div>
+        <div style={{ textAlign: "center", padding: 60, color: c.sub }}><p style={{ fontSize: 16, marginBottom: 8 }}>还没有任何自选股</p><p style={{ fontSize: 13 }}>在输入框输入股票代码，点击"添加"即可</p></div>
       ) : (
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, background: "#fff" }}>
@@ -289,6 +216,7 @@ export default function PortfolioPage() {
                 const isOpen = selCode === item.code;
                 const q = quotes[item.code];
                 const analysis = analysisData[item.code];
+                const klineData = klines[item.code];
                 const hasPos = item.shares > 0;
                 const curPrice = q?.price || (item.costPrice > 0 ? item.costPrice : 0);
                 const curPct = q?.changePercent ?? 0;
@@ -297,26 +225,17 @@ export default function PortfolioPage() {
 
                 return (
                   <Fragment key={item.code}>
-                    <tr onClick={() => setSelCode(isOpen ? null : item.code)}
+                    <tr onClick={() => handleRowClick(item.code)}
                       style={{ borderBottom: isOpen ? "none" : `1px solid ${c.border}`, background: hasPos ? "#fff" : "#fafafa", cursor: "pointer" }}>
                       <td style={{ ...td, fontFamily: "monospace", fontSize: 12, color: c.sub, textAlign: "center" }}>{item.code}</td>
                       <td style={{ ...td, fontWeight: 700, color: "#0071e3", textAlign: "center" }}>{item.name} <span style={{ fontSize: 10, color: "#aaa" }}>▾</span></td>
                       <td style={{ ...td, textAlign: "center" }}>{hasPos ? <b>{item.shares}</b> : <span style={{ color: "#bbb" }}>-</span>}</td>
                       <td style={{ ...td, textAlign: "center" }}>{item.costPrice > 0 ? `¥${fmt(item.costPrice)}` : <span style={{ color: "#bbb" }}>-</span>}</td>
                       <td style={{ ...td, textAlign: "center" }}>{hasPos ? `¥${(item.shares * item.costPrice).toLocaleString()}` : <span style={{ color: "#bbb" }}>-</span>}</td>
-                      <td style={{ ...td, textAlign: "center", color: priceColor(curPct), fontWeight: 700 }}>
-                        {curPrice > 0 ? `¥${fmt(curPrice)}` : <span style={{ color: "#bbb" }}>-</span>}
-                        {!q && <span style={{ fontSize: 10, color: "#bbb" }}>模拟</span>}
-                      </td>
-                      <td style={{ ...td, textAlign: "center", color: priceColor(curPct), fontWeight: 600 }}>
-                        {curPrice > 0 ? `${curPct > 0 ? "+" : ""}${curPct.toFixed(2)}%` : <span style={{ color: "#bbb" }}>-</span>}
-                      </td>
-                      <td style={{ ...td, textAlign: "center", color: pl > 0 ? c.rise : pl < 0 ? c.fall : c.flat, fontWeight: 700 }}>
-                        {hasPos ? `${pl > 0 ? "+" : ""}¥${pl.toFixed(2)}` : <span style={{ color: "#bbb" }}>-</span>}
-                      </td>
-                      <td style={{ ...td, textAlign: "center", color: plRate > 0 ? c.rise : plRate < 0 ? c.fall : c.flat }}>
-                        {hasPos ? `${plRate > 0 ? "+" : ""}${plRate.toFixed(2)}%` : <span style={{ color: "#bbb" }}>-</span>}
-                      </td>
+                      <td style={{ ...td, textAlign: "center", color: priceColor(curPct), fontWeight: 700 }}>{curPrice > 0 ? `¥${fmt(curPrice)}` : <span style={{ color: "#bbb" }}>-</span>}{!q && <span style={{ fontSize: 10, color: "#bbb" }}> 模拟</span>}</td>
+                      <td style={{ ...td, textAlign: "center", color: priceColor(curPct), fontWeight: 600 }}>{curPrice > 0 ? `${curPct > 0 ? "+" : ""}${curPct.toFixed(2)}%` : <span style={{ color: "#bbb" }}>-</span>}</td>
+                      <td style={{ ...td, textAlign: "center", color: pl > 0 ? c.rise : pl < 0 ? c.fall : c.flat, fontWeight: 700 }}>{hasPos ? `${pl > 0 ? "+" : ""}¥${pl.toFixed(2)}` : <span style={{ color: "#bbb" }}>-</span>}</td>
+                      <td style={{ ...td, textAlign: "center", color: plRate > 0 ? c.rise : plRate < 0 ? c.fall : c.flat }}>{hasPos ? `${plRate > 0 ? "+" : ""}${plRate.toFixed(2)}%` : <span style={{ color: "#bbb" }}>-</span>}</td>
                       <td style={{ ...td, color: c.sub, fontSize: 12, minWidth: 160, maxWidth: 260, lineHeight: 1.5, whiteSpace: "normal", wordBreak: "break-word" }}>{item.reason || "-"}</td>
                       <td style={{ ...td, textAlign: "center" }}>
                         <div style={{ display: "flex", gap: 4, justifyContent: "center" }}>
@@ -328,7 +247,7 @@ export default function PortfolioPage() {
                     {isOpen && analysis && (
                       <tr>
                         <td colSpan={11} style={{ padding: 0, borderBottom: `1px solid ${c.border}` }}>
-                          <StockDetail name={item.name} code={item.code} quote={q} analysis={analysis} />
+                          <StockDetail name={item.name} code={item.code} quote={q} analysis={analysis} klines={klineData} />
                         </td>
                       </tr>
                     )}
@@ -341,21 +260,22 @@ export default function PortfolioPage() {
       )}
 
       <div style={{ marginTop: 20, fontSize: 12, color: c.sub, textAlign: "center", lineHeight: 1.8 }}>
-        <p>💡 输入代码点击添加自动查询 · 点击股票名称展开AI分析</p>
-        <p>本页面由 虾大力 🦐 驱动 · 使用东方财富妙想数据</p>
+        <p>💡 点击股票名称展开分析+10日走势图 · 点击"刷新行情"同步最新价</p>
+        <p>本页面由 虾大力 🦐 驱动 · 使用腾讯行情+妙想数据分析</p>
       </div>
     </div>
   );
 }
 
-function StockDetail({ name, code, quote, analysis }: {
-  name: string; code: string; quote?: Quote; analysis: AnalysisData;
+function StockDetail({ name, code, quote, analysis, klines }: {
+  name: string; code: string; quote?: Quote; analysis: AnalysisData; klines?: KLine[];
 }) {
   const pct = quote?.changePercent ?? 0;
   const barColor = pct > 0 ? c.rise : pct < 0 ? c.fall : "#999";
 
   return (
     <div style={{ padding: "16px 24px", background: "#fafafa", borderTop: `2px solid ${barColor}` }}>
+      {/* 基本行情 */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 24, marginBottom: 12, fontSize: 13 }}>
         <div>
           <span style={{ color: c.sub, fontSize: 11 }}>最新价</span>
@@ -369,10 +289,14 @@ function StockDetail({ name, code, quote, analysis }: {
         <MiniStat label="最低" value={quote?.low ? `¥${quote.low}` : "---"} />
         <MiniStat label="成交量" value={quote?.volume || "---"} />
         <MiniStat label="成交额" value={quote?.turnover || "---"} />
-        <MiniStat label="市盈率" value={quote?.pe || "---"} />
-        <MiniStat label="总市值" value={quote?.marketCap || "---"} />
       </div>
 
+      {/* 10日走势图 */}
+      {klines && klines.length >= 2 && (
+        <KLineChart data={klines} color={barColor} />
+      )}
+
+      {/* 行业/概念 */}
       <div style={{ marginBottom: 12 }}>
         <span style={{ color: c.sub, fontSize: 11, marginRight: 8 }}>行业</span>
         <span style={{ fontSize: 13 }}>{analysis.industry}</span>
@@ -383,9 +307,88 @@ function StockDetail({ name, code, quote, analysis }: {
         </div>
       </div>
 
+      {/* AI分析 */}
       <div style={{ fontSize: 13, lineHeight: 1.7 }}>
         <span style={{ fontWeight: 600, color: c.text }}>📊 AI分析：</span>
         <span style={{ color: "#555" }}>{analysis.analysis}</span>
+      </div>
+    </div>
+  );
+}
+
+function KLineChart({ data, color }: { data: KLine[]; color: string }) {
+  const prices = data.map(d => d.close);
+  const minPrice = Math.min(...prices) * 0.995;
+  const maxPrice = Math.max(...prices) * 1.005;
+  const range = maxPrice - minPrice || 1;
+  const chartW = 100;
+  const chartH = 60;
+
+  // 成交量
+  const volumes = data.map(d => d.volume);
+  const maxVol = Math.max(...volumes) || 1;
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <span style={{ color: c.sub, fontSize: 11 }}>近10日走势</span>
+        <span style={{ color: c.sub, fontSize: 10 }}>
+          {data[0].date.slice(5)} ~ {data[data.length - 1].date.slice(5)}
+        </span>
+      </div>
+
+      {/* 价格折线 */}
+      <svg viewBox={`0 0 ${chartW * data.length} ${chartH}`}
+        style={{ width: "100%", height: 60, background: "#f5f5f5", borderRadius: 4, marginBottom: 2 }}>
+        {/* 网格线 */}
+        {[0, 25, 50, 75, 100].map(pct => (
+          <line key={pct} x1="0" y1={chartH * (1 - pct / 100)} x2={chartW * data.length} y2={chartH * (1 - pct / 100)}
+            stroke="#e8e8e8" strokeWidth="0.5" />
+        ))}
+        {/* K线 */}
+        {data.map((k, i) => {
+          const x = i * chartW + chartW * 0.2;
+          const barW = chartW * 0.6;
+          const isUp = k.close >= k.open;
+          const clr = isUp ? c.rise : c.fall;
+          const yHigh = chartH * (1 - (k.high - minPrice) / range);
+          const yLow = chartH * (1 - (k.low - minPrice) / range);
+          const yOpen = chartH * (1 - (k.open - minPrice) / range);
+          const yClose = chartH * (1 - (k.close - minPrice) / range);
+          return (
+            <g key={k.date}>
+              {/* 影线 */}
+              <line x1={x + barW / 2} y1={yHigh} x2={x + barW / 2} y2={yLow}
+                stroke={clr} strokeWidth="1" />
+              {/* 实体 */}
+              <rect x={x} y={Math.min(yOpen, yClose)} width={barW}
+                height={Math.max(Math.abs(yClose - yOpen), 1)}
+                fill={clr} rx="0.5" />
+            </g>
+          );
+        })}
+      </svg>
+
+      {/* 成交量柱状图 */}
+      <svg viewBox={`0 0 ${chartW * data.length} 30`}
+        style={{ width: "100%", height: 30, background: "#f5f5f5", borderRadius: 4 }}>
+        {data.map((k, i) => {
+          const x = i * chartW + chartW * 0.15;
+          const barW = chartW * 0.7;
+          const barH = (k.volume / maxVol) * 26;
+          const isUp = i > 0 ? k.close >= data[i - 1].close : k.close >= k.open;
+          return (
+            <rect key={k.date} x={x} y={30 - barH} width={barW} height={barH}
+              fill={isUp ? c.rise : c.fall} opacity="0.5" rx="1" />
+          );
+        })}
+      </svg>
+
+      {/* 日期标签 */}
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: c.sub, marginTop: 2 }}>
+        {data.filter((_, i) => data.length > 5 ? (i % Math.ceil(data.length / 5) === 0) : true).map(k => (
+          <span key={k.date}>{k.date.slice(5).replace("-", "/")}</span>
+        ))}
       </div>
     </div>
   );
