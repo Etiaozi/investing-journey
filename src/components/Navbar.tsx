@@ -14,6 +14,9 @@ export default function Navbar() {
           <Link href="/about" className="text-[#1d1d1f] hover:text-[#0071e3] transition-colors">
             关于
           </Link>
+          <Link href="/portfolio" className="text-[#1d1d1f] hover:text-[#0071e3] transition-colors">
+            自选奔富
+          </Link>
         </div>
       </div>
     </nav>
