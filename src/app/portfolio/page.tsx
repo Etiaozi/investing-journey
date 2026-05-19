@@ -169,7 +169,7 @@ export default function PortfolioPage() {
         <input placeholder="名称" value={name} onChange={e => setName(e.target.value)} style={inp(100)} />
         <input placeholder="持仓(股)" value={shares} onChange={e => setShares(e.target.value)} type="number" step="any" style={inp(100)} />
         <input placeholder="成本价" value={costPrice} onChange={e => setCostPrice(e.target.value)} type="number" step="0.01" style={inp(100)} />
-        <input placeholder="关注原因(可选)" value={reason} onChange={e => setReason(e.target.value)} style={{ flex: 1, minWidth: 120, ...inpBase }} />
+        <input placeholder="关注原因(可选)" value={reason} onChange={e => setReason(e.target.value)} style={{ flex: 2, minWidth: 180, ...inpBase }} />
         <button type="submit" style={{ padding: "6px 20px", background: c.rise, color: "#fff", border: "none", borderRadius: 4, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{editing ? "更新" : "添加"}</button>
         {editing && <button type="button" onClick={reset} style={{ padding: "6px 12px", background: c.sub, color: "#fff", border: "none", borderRadius: 4, fontSize: 13, cursor: "pointer" }}>取消</button>}
       </form>
@@ -228,7 +228,7 @@ export default function PortfolioPage() {
                       <td style={{ ...td, textAlign: "right", color: plRate > 0 ? c.rise : plRate < 0 ? c.fall : c.flat }}>
                         {hasPos ? `${plRate > 0 ? "+" : ""}${plRate.toFixed(2)}%` : <span style={{ color: "#bbb" }}>-</span>}
                       </td>
-                      <td style={{ ...td, color: c.sub, fontSize: 12, maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.reason || "-"}</td>
+                      <td style={{ ...td, color: c.sub, fontSize: 12, minWidth: 180, maxWidth: 280, lineHeight: 1.5, whiteSpace: "normal", wordBreak: "break-word" }}>{item.reason || "-"}</td>
                       <td style={{ ...td, textAlign: "center" }}>
                         <button onClick={e => { e.stopPropagation(); edit(item); }} style={btn}>编辑</button>
                         <button onClick={e => { e.stopPropagation(); remove(item.code, item.name); }} style={{ ...btn, color: "#e74c3c" }}>删除</button>
