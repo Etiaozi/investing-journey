@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 
-const DATA_DIR = path.join(process.cwd(), "data");
+// Use /tmp for Vercel serverless (read-only filesystem elsewhere)
+const DATA_DIR = path.join(process.env.VERCEL ? "/tmp" : process.cwd(), "data");
 const DATA_FILE = path.join(DATA_DIR, "portfolio.json");
 
 interface Stock {
