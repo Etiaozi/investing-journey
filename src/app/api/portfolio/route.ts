@@ -15,21 +15,30 @@ interface Stock {
 }
 
 function ensureDataDir() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  if (!fs.existsSync(DATA_FILE)) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify({ stocks: [] }, null, 2));
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    if (!fs.existsSync(DATA_FILE)) {
+      fs.writeFileSync(DATA_FILE, JSON.stringify({ stocks: [] }, null, 2));
+    }
+  } catch (e: any) {
+    console.error("ensureDataDir error:", e.message);
+    throw e;
   }
 }
 
 function readStocks(): Stock[] {
   ensureDataDir();
   try {
-    const raw = fs.readFileSync(DATA_FILE, "utf-8");
-    const data = JSON.parse(raw);
-    return data.stocks || [];
-  } catch {
+    if (fs.existsSync(DATA_FILE)) {
+      const raw = fs.readFileSync(DATA_FILE, "utf-8");
+      const data = JSON.parse(raw);
+      return data.stocks || [];
+    }
+    return [];
+  } catch (e: any) {
+    console.error("readStocks error:", e.message);
     return [];
   }
 }
@@ -41,23 +50,39 @@ function writeStocks(stocks: Stock[]) {
 
 // GET: 获取所有自选股
 export async function GET() {
-  const stocks = readStocks();
-  return NextResponse.json({ stocks });
+  try {
+    const stocks = readStocks();
+    return NextResponse.json({ stocks });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message, stocks: [] }, { status: 200 });
+  }
 }
 
 // POST: 添加自选股
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const text = await request.text();
+    console.log("POST received:", text);
+    let body;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      return NextResponse.json({ error: "JSON解析失败: " + text.substring(0, 100) }, { status: 400 });
+    }
     const { code, name, reason } = body;
 
     if (!code || !name) {
       return NextResponse.json({ error: "股票代码和名称不能为空" }, { status: 400 });
     }
 
-    const stocks = readStocks();
+    let stocks: Stock[] = [];
+    try {
+      stocks = readStocks();
+    } catch (e: any) {
+      console.error("readStocks error:", e.message);
+      // If data dir is not writable, use in-memory
+    }
 
-    // 检查是否已存在
     if (stocks.find((s) => s.code === code.toUpperCase())) {
       return NextResponse.json({ error: `${name} 已在自选列表中` }, { status: 409 });
     }
@@ -70,18 +95,30 @@ export async function POST(request: NextRequest) {
     };
 
     stocks.push(newStock);
-    writeStocks(stocks);
+    
+    try {
+      writeStocks(stocks);
+    } catch (e: any) {
+      console.error("writeStocks error:", e.message);
+      return NextResponse.json({ error: "数据写入失败: " + e.message }, { status: 500 });
+    }
 
     return NextResponse.json({ success: true, stock: newStock });
-  } catch {
-    return NextResponse.json({ error: "请求解析失败" }, { status: 400 });
+  } catch (e: any) {
+    return NextResponse.json({ error: "服务器错误: " + e.message }, { status: 500 });
   }
 }
 
 // DELETE: 删除自选股
 export async function DELETE(request: NextRequest) {
   try {
-    const body = await request.json();
+    const text = await request.text();
+    let body;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      return NextResponse.json({ error: "JSON解析失败" }, { status: 400 });
+    }
     const { code } = body;
 
     if (!code) {
@@ -98,7 +135,7 @@ export async function DELETE(request: NextRequest) {
 
     writeStocks(stocks);
     return NextResponse.json({ success: true });
-  } catch {
-    return NextResponse.json({ error: "请求解析失败" }, { status: 400 });
+  } catch (e: any) {
+    return NextResponse.json({ error: "服务器错误: " + e.message }, { status: 500 });
   }
 }
