@@ -127,7 +127,7 @@ export default function PortfolioPage() {
       }
 
       const stockName = info.name || `个股${code}`;
-      const reason = info.industry ? `${info.industry} · ${(info.concepts || []).slice(0, 3).join(" ")}` : "";
+      const reason = info.reason || (info.industry ? `${info.industry} · ${(info.concepts || []).slice(0, 3).join(" ")}` : "");
 
       // 2. 直接添加
       const addRes = await fetch("/api/portfolio", {
