@@ -20,12 +20,12 @@ export async function POST(request: NextRequest) {
     // 发送邮件
     const result = await sendEmailCode(email, code);
     if (!result.ok) {
-      // 邮件发送失败但仍然返回验证码，页面会显示调试信息
+      // 邮件发送失败时，返回 debugCode 供本地调试
       return NextResponse.json({ 
         success: false, 
         error: result.error || "邮件发送失败",
-        debugCode: code,
-        note: "邮箱未配置或域名未验证，验证码仅用于调试"
+        debugCode: process.env.NODE_ENV === "development" ? code : undefined,
+        note: "域名DNS传播中（可能需要几小时），请稍后再试"
       }, { status: 200 });
     }
 
