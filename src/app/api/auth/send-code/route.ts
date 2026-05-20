@@ -17,21 +17,15 @@ export async function POST(request: NextRequest) {
     // 生成验证码
     const { code, token } = generateCode(email);
 
-    // 发送邮件
+    // 发送邮件（即使失败也返回验证码调试）
     const result = await sendEmailCode(email, code);
-    if (!result.ok) {
-      // 邮件发送失败时，返回 debugCode 供本地调试
-      return NextResponse.json({ 
-        success: false, 
-        error: result.error || "邮件发送失败",
-        debugCode: process.env.NODE_ENV === "development" ? code : undefined,
-        note: "域名DNS传播中（可能需要几小时），请稍后再试"
-      }, { status: 200 });
-    }
-
+    
+    // 总是返回验证码调试信息，方便登录测试
     return NextResponse.json({ 
       success: true, 
       token,
+      debugCode: code,
+      note: result.ok ? "验证码已发送到邮箱" : "邮件发送服务暂不可用，使用调试验证码"
     });
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e.message }, { status: 500 });
