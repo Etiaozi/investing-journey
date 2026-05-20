@@ -23,7 +23,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: result.error || "邮件发送失败" }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, token });
+    const isDev = !process.env.RESEND_API_KEY || process.env.NODE_ENV === "development";
+    return NextResponse.json({ 
+      success: true, 
+      token,
+      // 开发环境或无RESEND_KEY时返回验证码方便调试
+      ...(isDev ? { debugCode: code } : {}),
+    });
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e.message }, { status: 500 });
   }

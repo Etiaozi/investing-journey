@@ -57,7 +57,13 @@ export default function LoginPage() {
         setVerifyToken(d.token);
         setStep("verify");
         setCountdown(60);
-        toast("验证码已发送到邮箱，请查收", "success");
+        // 如果有调试验证码（开发环境），直接填入
+        if (d.debugCode) {
+          setCode(d.debugCode);
+          toast(`🔑 开发模式验证码: ${d.debugCode}（已自动填入）`, "success");
+        } else {
+          toast("验证码已发送到邮箱，请查收", "success");
+        }
       }
     } catch {
       toast("网络错误，请重试", "error");

@@ -152,6 +152,7 @@ export async function sendEmailCode(email: string, code: string): Promise<{ ok: 
   }
 
   try {
+    const fromDomain = process.env.RESEND_DOMAIN || "valuepath.cn";
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -159,7 +160,7 @@ export async function sendEmailCode(email: string, code: string): Promise<{ ok: 
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "valuepath.cn <noreply@valuepath.cn>",
+        from: `投资智慧 <noreply@${fromDomain}>`,
         to: email,
         subject: "登录验证码 - 投资智慧",
         html: `
