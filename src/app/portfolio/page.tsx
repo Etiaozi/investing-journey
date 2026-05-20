@@ -307,9 +307,9 @@ function KLineChart({data,color}:{data:KLine[];color:string}){
           <rect key={'v'+k.date} x={cx-vw/2} y={ch+2+(vh-4-bh)} width={vw} height={bh} fill={up?c.rise:c.fall} opacity="0.5" rx="1"/>
         );})}
       </svg>
-      <div style={{display:"flex",justifyContent:"space-between",fontSize:8,color:c.sub,marginTop:1}}>
+      <div style={{display:"flex",fontSize:8,color:c.sub,marginTop:1}}>
         {data.map((k,i)=>
-          <div key={k.date} style={{textAlign:"center"}}>
+          <div key={k.date} style={{width:cw,textAlign:"center",flexShrink:0}}>
             <div style={{fontSize:8}}>{k.date.slice(5).replace("-","/")}</div>
             <div style={{fontSize:7,color:i>0&&k.close>=data[i-1].close?c.rise:i>0?c.fall:c.sub}}>{fmt(k.volume)}</div>
           </div>
