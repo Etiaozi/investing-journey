@@ -290,15 +290,18 @@ function KLineChart({data,color}:{data:KLine[];color:string}){
   const prices=data.map(d=>d.close),minP=Math.min(...prices)*0.995,maxP=Math.max(...prices)*1.005,range=maxP-minP||1;
   const N=data.length,cw=60,kw=44,vw=28,ch=52,vh=24,vols=data.map(d=>d.volume),mv=Math.max(...vols)||1;
   const fmt=(v:number)=>v>=10000?(v/10000).toFixed(1)+'万':v.toFixed(0);
+  const totalW=N*cw;
+  const totalH=ch+vh+2+24; // 加底部标签高度
+  // 全部画在 SVG 内部，用 text 标签对齐
   return(
-    <div style={{marginBottom:12}}>
+    <div style={{marginBottom:12,overflowX:"auto"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
         <span style={{color:c.sub,fontSize:11}}>近10日走势</span>
         <span style={{color:c.sub,fontSize:10}}>{data[0].date.slice(5)}~{data[data.length-1].date.slice(5)}</span>
       </div>
-      <svg viewBox={`0 0 ${N*cw} ${ch+vh+2}`} style={{width:"100%",height:ch+vh+2,background:"#f5f5f5",borderRadius:4}}>
-        {[0,25,50,75,100].map(p=><line key={'g'+p} x1="0" y1={ch*(1-p/100)} x2={N*cw} y2={ch*(1-p/100)} stroke="#e0e0e0" strokeWidth="0.5"/>)}
-        <line x1="0" y1={ch+1} x2={N*cw} y2={ch+1} stroke="#d0d0d0" strokeWidth="0.5"/>
+      <svg viewBox={`0 0 ${totalW} ${totalH}`} style={{width:"100%",height:"auto",display:"block",background:"#f5f5f5",borderRadius:4}}>
+        {[0,25,50,75,100].map(p=><line key={'g'+p} x1="0" y1={ch*(1-p/100)} x2={totalW} y2={ch*(1-p/100)} stroke="#e0e0e0" strokeWidth="0.5"/>)}
+        <line x1="0" y1={ch+1} x2={totalW} y2={ch+1} stroke="#d0d0d0" strokeWidth="0.5"/>
         {data.map((k,i)=>{const cx=i*cw+cw/2,up=k.close>=k.open,cl=up?c.rise:c.fall,yh=ch*(1-(k.high-minP)/range),yl=ch*(1-(k.low-minP)/range),yo=ch*(1-(k.open-minP)/range),yc=ch*(1-(k.close-minP)/range);return(
           <g key={k.date}><line x1={cx} y1={yh} x2={cx} y2={yl} stroke={cl} strokeWidth="0.8"/>
           <rect x={cx-kw/2} y={Math.min(yo,yc)} width={kw} height={Math.max(Math.abs(yc-yo),1)} fill={cl} rx="0.5"/></g>
@@ -306,15 +309,14 @@ function KLineChart({data,color}:{data:KLine[];color:string}){
         {data.map((k,i)=>{const cx=i*cw+cw/2,up=i>0?k.close>=data[i-1].close:k.close>=k.open,bh=(k.volume/mv)*(vh-4);return(
           <rect key={'v'+k.date} x={cx-vw/2} y={ch+2+(vh-4-bh)} width={vw} height={bh} fill={up?c.rise:c.fall} opacity="0.5" rx="1"/>
         );})}
+        {/* 底部日期和成交量标签 - 画在 SVG 内部保证完美对齐 */}
+        {data.map((k,i)=>{const cx=i*cw+cw/2,up=i>0?k.close>=data[i-1].close:k.close>=k.open;return(
+          <g key={'l'+k.date}>
+            <text x={cx} y={ch+vh+2+9} textAnchor="middle" style={{fontSize:8,fill:c.sub}}>{k.date.slice(5).replace("-","/")}</text>
+            <text x={cx} y={ch+vh+2+19} textAnchor="middle" style={{fontSize:7,fill:up?c.rise:i>0?c.fall:c.sub}}>{fmt(k.volume)}</text>
+          </g>
+        );})}
       </svg>
-      <div style={{display:"flex",fontSize:8,color:c.sub,marginTop:1}}>
-        {data.map((k,i)=>
-          <div key={k.date} style={{width:cw,textAlign:"center",flexShrink:0}}>
-            <div style={{fontSize:8}}>{k.date.slice(5).replace("-","/")}</div>
-            <div style={{fontSize:7,color:i>0&&k.close>=data[i-1].close?c.rise:i>0?c.fall:c.sub}}>{fmt(k.volume)}</div>
-          </div>
-        )}
-      </div>
     </div>
   );
 }
