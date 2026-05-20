@@ -13,32 +13,328 @@ function secId(code: string): string {
 
 async function fetchNameEASTMoney(code: string): Promise<string | null> {
   try {
-    const res = await fetch(`https://push2.eastmoney.com/api/qt/stock/get?secid=${secId(code)}&fields=f57,f58`, { signal: AbortSignal.timeout(5000) });
+    const res = await fetch(
+      `https://push2.eastmoney.com/api/qt/stock/get?secid=${secId(code)}&fields=f57,f58`,
+      { signal: AbortSignal.timeout(5000) }
+    );
     const data = await res.json();
     if (data?.data?.f58 && data.data.f58 !== "上证指数") return data.data.f58;
   } catch {}
   return null;
 }
 
-interface StockInfo {
-  code: string;
-  name?: string;
-  exchange?: string;
-  industry?: string;
-  concepts?: string[];
-  analysis?: string;
-  reason?: string;
-  found: boolean;
+// ---------- 妙想搜索（获取实时研报观点） ----------
+
+const MX_API_URL = "https://mkapi2.dfcfs.com/finskillshub/api/claw/news-search";
+
+interface MXReport {
+  title: string;
+  content: string;
+  date: string;
+  sourceName?: string;
+  insName?: string;
+  rating?: string;   // 评级
+  summary?: string;
 }
 
-// 行业智能判断（基于代码和名称）
+async function fetchMXReports(stockName: string, stockCode: string): Promise<MXReport[]> {
+  const apiKey = process.env.MX_APIKEY;
+  if (!apiKey) return [];
+
+  try {
+    // 发起两个搜索请求：研报 + 近期新闻
+    const [reportRes, newsRes] = await Promise.allSettled([
+      fetch(MX_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: apiKey },
+        body: JSON.stringify({ query: `${stockName} ${stockCode} 最新研报 2026`, size: 6 }),
+        signal: AbortSignal.timeout(8000),
+      }),
+      fetch(MX_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: apiKey },
+        body: JSON.stringify({ query: `${stockName} ${stockCode} 基本面 业绩 2026`, size: 6 }),
+        signal: AbortSignal.timeout(8000),
+      }),
+    ]);
+
+    const results: MXReport[] = [];
+
+    for (const settled of [reportRes, newsRes]) {
+      if (settled.status !== "fulfilled" || !settled.value.ok) continue;
+      const json = await settled.value.json();
+      const items =
+        json?.data?.data?.llmSearchResponse?.data;
+      if (Array.isArray(items)) {
+        for (const item of items) {
+          results.push({
+            title: item.title || "",
+            content: item.content || "",
+            date: item.date || item.publishTime || "",
+            sourceName: item.sourceName || "",
+            insName: item.insName || "",
+            rating: item.rating || "",
+            summary: item.summary || "",
+          });
+        }
+      }
+    }
+
+    return results;
+  } catch {
+    return [];
+  }
+}
+
+// ---------- 从研报数据提取关键指标 ----------
+
+function extractKeyMetrics(reports: MXReport[]): {
+  eps?: string;
+  revenue?: string;
+  profit?: string;
+  targetPrice?: string;
+  ratings: string[];
+  keyPoints: string[];
+} {
+  const ratings: string[] = [];
+  const keyPoints: string[] = [];
+  let eps: string | undefined;
+  let revenue: string | undefined;
+  let profit: string | undefined;
+  let targetPrice: string | undefined;
+
+  for (const report of reports) {
+    if (report.rating) ratings.push(report.rating);
+    const content = report.content || "";
+
+    // 提取营收、利润、EPS、目标价等关键数据
+    const revMatch = content.match(/(?:营收|收入|营业收入)\s*(?:为|达到|实现)?\s*(\d+[\.\d]*)亿/);
+    if (revMatch && !revenue) revenue = revMatch[1] + "亿";
+
+    const profitMatch = content.match(/(?:归母净利润|净利润)\s*(?:为|达到|实现)?\s*(\d+[\.\d]*)亿/);
+    if (profitMatch && !profit) profit = profitMatch[1] + "亿";
+
+    const epsMatch = content.match(/(?:EPS|每股收益)\s*(?:为|约|达到)?\s*([\d\.]+)元/);
+    if (epsMatch && !eps) eps = epsMatch[1] + "元";
+
+    const targetMatch = content.match(/(?:目标价|目标价格)\s*(?:为|看|看到)?\s*(\d+[\.\d]*)元/);
+    if (targetMatch && !targetPrice) targetPrice = targetMatch[1] + "元";
+
+    // 提取关键观点（前150字摘要）
+    const clean = content
+      .replace(/\s+/g, " ")
+      .replace(/(?:通富微电|公司)\(\d+\)/, "")
+      .trim();
+    const sentences = clean.split(/[。；！？\n]/).filter(Boolean);
+    const meaningful = sentences.filter(
+      (s) =>
+        !s.includes("评级") &&
+        !s.includes("维持") &&
+        !s.includes("事件") &&
+        s.length > 15 &&
+        s.length < 120 &&
+        (s.includes("营收") || s.includes("净利") || s.includes("目标") || s.includes("估值") || s.includes("增长") || s.includes("看好"))
+    );
+    for (const s of meaningful.slice(0, 4)) {
+      const trimmed = s.trim().replace(/^[，、．\s]+/, "");
+      if (trimmed.length > 10 && !keyPoints.includes(trimmed)) {
+        keyPoints.push(trimmed);
+      }
+    }
+  }
+
+  return { eps, revenue, profit, targetPrice, ratings: [...new Set(ratings)], keyPoints: keyPoints.slice(0, 5) };
+}
+
+// ---------- 从研报中提取行业和概念 ----------
+
+function extractIndustryConcepts(reports: MXReport[], name: string): { industry: string; concepts: string[] } {
+  // 从研报内容中提取行业信息
+  const allContent = reports.map((r) => r.content || "").join(" ");
+
+  const industryKeywords: [string, string][] = [
+    ["半导体", "半导体"],
+    ["封测", "半导体封测"],
+    ["封装", "半导体封测"],
+    ["芯片", "半导体"],
+    ["光模块", "光模块/光通信"],
+    ["光通信", "光模块/光通信"],
+    ["医药", "医药生物"],
+    ["生物药", "医药生物"],
+    ["CRO", "医药生物/CRO"],
+    ["创新药", "医药生物"],
+    ["新能源", "新能源"],
+    ["光伏", "新能源"],
+    ["锂电池", "新能源"],
+    ["汽车", "汽车"],
+    ["新能源车", "汽车"],
+    ["电力", "电力设备"],
+    ["核电", "电力设备"],
+    ["电气", "电力设备"],
+    ["软件", "科技/信创"],
+    ["数据", "科技/信创"],
+    ["AI", "人工智能"],
+    ["人工智能", "人工智能"],
+    ["机器人", "高端装备"],
+    ["精密", "消费电子/精密制造"],
+    ["材料", "新材料"],
+    ["化学", "新材料"],
+    ["军工", "国防军工"],
+    ["航天", "国防军工"],
+    ["消费电子", "消费电子"],
+    ["苹果", "消费电子"],
+    ["PCB", "PCB/半导体载板"],
+    ["载板", "PCB/半导体载板"],
+    ["通信", "通信"],
+    ["信创", "信创/数字政务"],
+  ];
+
+  // 优先从研报行业词匹配，否则从名称推断
+  let industry = "A股上市公司";
+  for (const [kw, ind] of industryKeywords) {
+    if (allContent.includes(kw) || name.includes(kw)) {
+      industry = ind;
+      break;
+    }
+  }
+
+  // 概念提取
+  const conceptKeywords: [string, string][] = [
+    ["先进封装", "先进封装"],
+    ["Chiplet", "Chiplet/先进封装"],
+    ["国产替代", "国产替代"],
+    ["AI算力", "AI算力"],
+    ["人工智能", "人工智能"],
+    ["机器人", "机器人"],
+    ["5G", "5G/6G"],
+    ["信创", "信创"],
+    ["数字经济", "数字经济"],
+    ["央国企改革", "央国企改革"],
+    ["一带一路", "一带一路"],
+    ["专精特新", "专精特新"],
+    ["国企", "央国企改革"],
+    ["央企", "央国企改革"],
+    ["核能", "核能核电"],
+    ["储能", "储能"],
+    ["抽水蓄能", "抽水蓄能"],
+    ["氢能", "氢能源"],
+    ["光伏", "光伏"],
+    ["锂电", "锂电池"],
+    ["特斯拉", "新能源车/特斯拉"],
+    ["华为", "华为产业链"],
+    ["苹果", "苹果产业链"],
+    ["数据中心", "数据中心"],
+    ["云计算", "云计算"],
+    ["液冷", "液冷/散热"],
+    ["交换机", "光通信"],
+    ["铜缆", "高速铜缆互联"],
+    ["物联网", "物联网"],
+    ["芯片", "芯片设计"],
+  ];
+
+  const found = new Set<string>();
+  for (const [kw, concept] of conceptKeywords) {
+    if (allContent.includes(kw) || name.includes(kw)) {
+      found.add(concept);
+    }
+  }
+
+  // 补充基于代码的标签
+  if (found.size < 2) {
+    if (industry.includes("半导体")) found.add("国产替代");
+    if (industry.includes("医药")) found.add("大健康");
+    if (industry.includes("电力")) found.add("央国企改革");
+  }
+
+  return { industry, concepts: [...found] };
+}
+
+// ---------- 生成分析文本 ----------
+
+function generateAnalysis(
+  name: string,
+  code: string,
+  industry: string,
+  concepts: string[],
+  reports: MXReport[],
+  metrics: ReturnType<typeof extractKeyMetrics>
+): { analysis: string; reason: string } {
+  const cStr = concepts.slice(0, 5).join(" · ");
+  const ratingStr = metrics.ratings.length > 0 ? metrics.ratings.slice(0, 3).join(" / ") : "";
+  const hasReports = reports.length > 0;
+
+  let analysis = `**${name}（${code}）**`;
+
+  // 财务概况（有研报时）
+  if (hasReports) {
+    const parts: string[] = [];
+    if (metrics.revenue) parts.push(`营收${metrics.revenue}`);
+    if (metrics.profit) parts.push(`净利${metrics.profit}`);
+    if (metrics.eps) parts.push(`EPS ${metrics.eps}`);
+    if (metrics.targetPrice) parts.push(`目标价${metrics.targetPrice}`);
+    if (parts.length > 0) {
+      analysis += ` · ${parts.join(" · ")}`;
+    }
+  }
+
+  analysis += `\n\n📁 **行业**：${industry}`;
+
+  // 概念标签
+  if (concepts.length > 0) {
+    analysis += `\n🏷️ **概念**：${cStr}`;
+  }
+
+  // 机构观点
+  if (ratingStr) {
+    analysis += `\n🏢 **机构评级**：${ratingStr}`;
+  }
+
+  if (hasReports && reports.length > 0) {
+    // 最新研报题目
+    const latestReport = reports[0];
+    if (latestReport.title) {
+      analysis += `\n\n🔍 **最新研报**：${latestReport.title}`;
+      if (latestReport.insName) {
+        analysis += `（${latestReport.insName}）`;
+      }
+    }
+  }
+
+  // AI 关键分析
+  analysis += `\n\n📊 **AI分析**：`;
+
+  if (hasReports && metrics.keyPoints.length > 0) {
+    // 从研报中提取关键观点
+    for (const point of metrics.keyPoints.slice(0, 3)) {
+      analysis += `\n• ${point}。`;
+    }
+  }
+
+  // 补充机构数量
+  if (hasReports) {
+    const uniqueOrgs = [...new Set(reports.map((r) => r.insName).filter(Boolean))];
+    if (uniqueOrgs.length > 0) {
+      analysis += `\n• 近期待${uniqueOrgs.length}家机构发布研报关注该标的，市场关注度较高。`;
+    }
+  }
+
+  // 风险提示
+  analysis += `\n\n⚠️ **风险提示**：以上分析基于公开研报数据由AI自动生成，不构成投资建议。投资有风险，请结合自身情况判断。`;
+
+  // 关注原因
+  const reason = `${industry} · ${cStr}`;
+
+  return { analysis, reason };
+}
+
+// ---------- 兜底分析（没有研报时） ----------
+
 function smartIndustry(code: string, name: string): string {
   const n = name;
-  // 行业关键词匹配
-  if (n.includes("医药") || n.includes("生物") || n.includes("药业") || n.includes("医疗") || n.includes("CRO") || n.includes("药") && !n.includes("银行")) return "医药生物";
+  if (n.includes("医药") || n.includes("生物") || n.includes("药业") || n.includes("医疗") || n.includes("CRO") || (n.includes("药") && !n.includes("银行"))) return "医药生物";
   if (n.includes("半导体") || n.includes("芯片") || n.includes("集成") || n.includes("微电") || n.includes("中芯")) return "半导体";
   if (n.includes("证券") || n.includes("银行") || n.includes("保险") || n.includes("信托") || n.includes("金控")) return "金融";
-  if (n.includes("数据") || n.includes("软件") || n.includes("信息") || n.includes("科技") || n.includes("数字") || n.includes("电子") && !n.includes("药")) return "科技成长";
+  if (n.includes("数据") || n.includes("软件") || n.includes("信息") || n.includes("科技") || n.includes("数字") || (n.includes("电子") && !n.includes("药"))) return "科技成长";
   if (n.includes("光伏") || n.includes("新能源") || n.includes("锂") || n.includes("电池") || n.includes("特斯拉")) return "新能源";
   if (n.includes("通信") || n.includes("光模块") || n.includes("光纤")) return "光通信";
   if (n.includes("航天") || n.includes("航空") || n.includes("军工") || n.includes("电科") || n.includes("中航")) return "国防军工";
@@ -54,7 +350,6 @@ function smartIndustry(code: string, name: string): string {
   return "A股上市公司";
 }
 
-// 概念标签生成
 function smartConcepts(code: string, name: string, exchange: string): string[] {
   const concepts: string[] = [exchange];
   const n = name;
@@ -72,7 +367,6 @@ function smartConcepts(code: string, name: string, exchange: string): string[] {
   if (n.includes("PCB") || n.includes("载板") || n.includes("兴森")) concepts.push("PCB", "IC载板", "国产替代");
   if (n.includes("封测") || n.includes("通富") || n.includes("微电")) concepts.push("半导体封测", "先进封装");
 
-  // 按代码自动补充
   if (code.startsWith("688")) concepts.push("科创板", "科技创新");
   if (code.startsWith("30")) concepts.push("创业板", "高成长");
   if (code.startsWith("60")) concepts.push("沪市主板");
@@ -81,37 +375,29 @@ function smartConcepts(code: string, name: string, exchange: string): string[] {
   return [...new Set(concepts)];
 }
 
-// AI分析生成（基于行业和代码特征）
-function smartAnalysis(code: string, name: string, industry: string, concepts: string[]): string {
+function fallbackAnalysis(name: string, code: string, industry: string, concepts: string[]): string {
   const cList = concepts.slice(0, 4).join("、");
   const isTech = code.startsWith("688") || code.startsWith("30");
-  const isCyc = code.startsWith("60") || code.startsWith("000");
 
-  let analysis = `**${name}（${code}）** 所属行业：${industry}。概念标签：${cList}。`;
+  let text = `**${name}（${code}）** 所属行业：${industry}。概念标签：${cList}。\n\n📊 **AI分析**：`;
 
   if (name.includes("药") || name.includes("CRO") || name.includes("医药") || name.includes("生物")) {
-    analysis += "医药行业高壁垒、长赛道，关注创新管线进展和集采影响。估值受政策和市场情绪双重影响，需结合PE和研发投入综合判断。";
-  } else if (name.includes("半导体") || name.includes("芯片") || name.includes("微电") || code === "688981") {
-    analysis += "半导体是国家战略性产业，国产替代长期逻辑不变。短期受全球半导体周期和地缘政治影响，波动较大。关注订单能见度和产能利用率指标。";
+    text += "医药行业高壁垒、长赛道，关注创新管线进展和集采影响。估值受政策和市场情绪双重影响，需结合PE和研发投入综合判断。";
+  } else if (name.includes("半导体") || name.includes("芯片") || name.includes("微电")) {
+    text += "半导体是国家战略性产业，国产替代长期逻辑不变。短期受全球半导体周期和地缘政治影响，波动较大。关注订单能见度和产能利用率指标。";
   } else if (name.includes("数据") || name.includes("软件") || name.includes("信息") || name.includes("数字") || isTech) {
-    analysis += "科技成长型标的，具备较高的弹性但波动也大。建议关注营收增速、毛利率趋势和研发投入转化效率。估值中枢参考PS和PEG指标。";
+    text += "科技成长型标的，具备较高的弹性但波动也大。建议关注营收增速、毛利率趋势和研发投入转化效率。估值中枢参考PS和PEG指标。";
   } else if (name.includes("电力") || name.includes("电气") || name.includes("核电") || name.includes("能源")) {
-    analysis += "能源类标的，政策驱动性强。关注装机量、订单增速和盈利改善趋势。央企标的建议关注改革进程和分红稳定性。适合中长期持有。";
-  } else if (isCyc) {
-    analysis += "主板蓝筹标的，盈利稳定性较好。建议关注PE历史分位、ROE水平、股息率等价值指标。适合在估值低位分批介入。";
+    text += "能源类标的，政策驱动性强。关注装机量、订单增速和盈利改善趋势。央企标的建议关注改革进程和分红稳定性，适合中长期持有。";
   } else {
-    analysis += "建议从行业景气度、公司基本面（营收、利润、现金流）和估值三个维度综合评估。设置合理的止损位，控制单只仓位。";
+    text += "建议从行业景气度、公司基本面（营收、利润、现金流）和估值三个维度综合评估。设置合理的止损位，控制单只仓位。";
   }
 
-  analysis += `当前市值和估值需结合最新财报分析，建议定期跟踪季报表现。此分析由AI自动生成，不构成投资建议。`;
-  return analysis;
+  text += "\n\n⚠️ **风险提示**：以上分析由AI自动生成，不构成投资建议。投资有风险，请结合自身情况判断。";
+  return text;
 }
 
-// 生成关注原因
-function smartReason(code: string, name: string, industry: string, concepts: string[]): string {
-  const cStr = concepts.slice(0, 3).join(" · ");
-  return `${industry} · ${cStr} · AI自动分析生成`;
-}
+// ---------- Main ----------
 
 export async function POST(request: NextRequest) {
   try {
@@ -122,6 +408,7 @@ export async function POST(request: NextRequest) {
 
     const exchange = detectExchange(code);
 
+    // 1. 获取股票名称
     let name = await fetchNameEASTMoney(code);
 
     if (!name) {
@@ -152,12 +439,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ found: false, code, error: `未找到代码 ${code}，请检查是否正确` });
     }
 
-    const industry = smartIndustry(code, name);
-    const concepts = smartConcepts(code, name, exchange);
-    const analysis = smartAnalysis(code, name, industry, concepts);
-    const reason = smartReason(code, name, industry, concepts);
+    // 2. 获取妙想研报数据
+    const reports = await fetchMXReports(name, code);
 
-    return NextResponse.json({ found: true, code, name, exchange, industry, concepts, analysis, reason });
+    // 3. 生成分析
+    let industry: string;
+    let concepts: string[];
+    let analysis: string;
+    let reason: string;
+
+    if (reports.length > 0) {
+      // 有真实研报数据 → 基于研报生成分析
+      const extracted = extractIndustryConcepts(reports, name);
+      industry = extracted.industry;
+      concepts = extracted.concepts;
+      const metrics = extractKeyMetrics(reports);
+      const result = generateAnalysis(name, code, industry, concepts, reports, metrics);
+      analysis = result.analysis;
+      reason = result.reason;
+    } else {
+      // 没有研报 → 兜底规则分析
+      industry = smartIndustry(code, name);
+      concepts = smartConcepts(code, name, exchange);
+      analysis = fallbackAnalysis(name, code, industry, concepts);
+      reason = `${industry} · ${concepts.slice(0, 3).join(" · ")}`;
+    }
+
+    return NextResponse.json({ found: true, code, name, exchange, industry, concepts, analysis, reason, hasReports: reports.length > 0 });
   } catch (e: any) {
     return NextResponse.json({ found: false, error: e.message }, { status: 500 });
   }
