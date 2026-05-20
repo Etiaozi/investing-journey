@@ -122,8 +122,8 @@
         {
           "code": "000988",
           "name": "华工科技",
-          "shares": 0,
-          "costPrice": 0,
+          "shares": 1000,
+          "costPrice": 78,
           "reason": "半导体 · 先进封装 · 国产替代 · AI算力 · 人工智能 · 5G/6G",
           "addedAt": "2026-05-20T02:10:09.621Z"
         }
