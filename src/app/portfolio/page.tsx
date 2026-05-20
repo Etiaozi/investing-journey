@@ -55,6 +55,8 @@ export default function PortfolioPage(){
   const [editShares,setEditShares]=useState("");const[editCost,setEditCost]=useState("");const[editReason,setEditReason]=useState("");
   const [renamingGroup,setRenamingGroup]=useState<string|null>(null);
   const [renameInput,setRenameInput]=useState("");
+  const [authChecked,setAuthChecked]=useState(false);
+  const [authenticated,setAuthenticated]=useState(false);
   const toast=(text:string,type:"success"|"error")=>{setMsg({text,type});setTimeout(()=>setMsg({text:"",type:"" as any}),3000);};
   const api = "/api/portfolio-github";
 
@@ -71,6 +73,14 @@ export default function PortfolioPage(){
       const codes=stocks.map((s:Holding)=>s.code);
       if(codes.length>0){try{const qr=await fetch("/api/quotes",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({codes})});const qd=await qr.json();if(qd.quotes)setQuotes(qd.quotes);}catch{}}
     }catch(e){console.error(e);}finally{setLoading(false);}
+  },[]);
+
+  // 检查登录状态
+  useEffect(()=>{
+    fetch("/api/auth/me").then(r=>r.json()).then(d=>{
+      setAuthenticated(d.authenticated);
+      setAuthChecked(true);
+    }).catch(()=>{setAuthChecked(true);});
   },[]);
 
   useEffect(()=>{fetchAll();},[fetchAll]);
@@ -121,6 +131,41 @@ export default function PortfolioPage(){
   const withPos=watchlist.filter(h=>h.shares>0).length;
   const pColor=(pct:number)=>pct>0?c.rise:pct<0?c.fall:c.flat;
   const currentGN=groups.find(g=>g.id===activeGroup)?.name||"自选";
+
+  // 未登录状态
+  if(!authChecked){
+    return <div style={{maxWidth:1400,margin:"0 auto",padding:"0 16px 40px",textAlign:"center",paddingTop:80}}><p style={{color:c.sub}}>加载中...</p></div>;
+  }
+
+  if(!authenticated){
+    return (
+      <div style={{maxWidth:1400,margin:"0 auto",padding:"0 16px 80px",textAlign:"center"}}>
+        <div style={{paddingTop:80}}>
+          <div style={{fontSize:48,marginBottom:16}}>🔒</div>
+          <h2 style={{fontSize:20,color:c.text,marginBottom:8}}>请先登录</h2>
+          <p style={{fontSize:14,color:c.sub,marginBottom:24}}>登录后即可管理你的自选奔富组合</p>
+          <a
+            href="/login"
+            style={{
+              display:"inline-block",padding:"10px 32px",background:"#0071e3",color:"#fff",
+              borderRadius:6,fontSize:14,fontWeight:600,textDecoration:"none",
+            }}
+          >
+            前往登录
+          </a>
+          <p style={{fontSize:12,color:"#bbb",marginTop:16}}>
+            或
+            <button
+              onClick={()=>{setAuthChecked(true);setAuthenticated(true);}}
+              style={{background:"none",border:"none",color:c.sub,fontSize:12,cursor:"pointer",textDecoration:"underline",marginLeft:4}}
+            >
+              以游客模式浏览
+            </button>
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{maxWidth:1400,margin:"0 auto",padding:"0 16px 40px"}}>
