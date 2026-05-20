@@ -16,7 +16,7 @@ export default function RootLayout({
     <html lang="zh-CN">
       <body>
         <Navbar />
-        <main className="max-w-6xl mx-auto px-6 py-12">{children}</main>
+        <main>{children}</main>
       </body>
     </html>
   );

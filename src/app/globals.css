@@ -3,23 +3,38 @@
 @tailwind utilities;
 
 :root {
-  --background: #f5f5f7;
+  --background: #ffffff;
+  --section-bg: #f5f5f7;
   --foreground: #1d1d1f;
   --card-bg: #ffffff;
   --accent-blue: #0071e3;
   --accent-blue-hover: #0077ed;
   --border-color: #d2d2d7;
   --text-secondary: #6e6e73;
+  --text-tertiary: #86868b;
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
   }
+}
+
+/* Apple-style smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Custom selection color */
+::selection {
+  background: #0071e3;
+  color: white;
 }
