@@ -120,6 +120,11 @@
           "addedAt": "2026-05-19T09:31:47.793Z"
         }
       ]
+    },
+    {
+      "id": "mpdeqazay72t",
+      "name": "新分组",
+      "stocks": []
     }
   ],
   "activeGroup": "core",
