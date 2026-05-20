@@ -51,19 +51,20 @@ export default function LoginPage() {
         body: JSON.stringify({ email: e }),
       });
       const d = await r.json();
-      if (!d.success) {
+      if (d.debugCode) {
+        // 邮件发送失败时仍有调试验证码
+        setCode(d.debugCode);
+        setStep("verify");
+        setCountdown(60);
+        if (d.note) toast(d.note, "info");
+        toast(`🔑 验证码: ${d.debugCode}（已自动填入）`, "success");
+      } else if (!d.success) {
         toast(d.error, "error");
       } else {
         setVerifyToken(d.token);
         setStep("verify");
         setCountdown(60);
-        // 如果有调试验证码（开发环境），直接填入
-        if (d.debugCode) {
-          setCode(d.debugCode);
-          toast(`🔑 开发模式验证码: ${d.debugCode}（已自动填入）`, "success");
-        } else {
-          toast("验证码已发送到邮箱，请查收", "success");
-        }
+        toast("验证码已发送到邮箱，请查收", "success");
       }
     } catch {
       toast("网络错误，请重试", "error");
